@@ -45,6 +45,22 @@ The first time you run it, VS Code asks you to allow the extension to use Copilo
 * At the end of a line such as `theorem foo : … := by`: one-line proofs go on the same line, and
   longer proofs go on new lines indented one level.
 
+## Mathlib
+
+This repository is also a Lean project that depends on [Mathlib](https://github.com/leanprover-community/mathlib4)
+(v4.35.0, pinned in `lakefile.toml`, `lake-manifest.json` and `lean-toolchain`). When a Codespace is
+created, it downloads Mathlib's prebuilt files with `lake exe cache get`. This takes a few minutes and
+about 5 GB of disk. Any `.lean` file in the repo can then `import Mathlib`; try `examples/MathlibDemo.lean`.
+
+Mathlib uses a lot of memory: a 2-core Codespace (8 GB RAM) works, and a 4-core machine is noticeably faster.
+
+To move to a newer Mathlib, change `rev` in `lakefile.toml` and the version in `lean-toolchain` to
+match, then run:
+
+```bash
+lake update && lake exe cache get
+```
+
 ## Settings
 
 | Setting | Default | Meaning |

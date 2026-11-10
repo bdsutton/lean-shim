@@ -7,3 +7,7 @@ tsconfig.json
 .devcontainer/**
 examples/**
 .gitignore
+.lake/**
+lakefile.toml
+lake-manifest.json
+lean-toolchain
