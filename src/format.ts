@@ -138,14 +138,14 @@ export function buildPrompt(input: PromptInput): string {
     out.push('', 'The goal at the cursor could not be obtained from Lean; infer it from the surrounding code.');
   }
   if (input.diagnostics.length) {
-    out.push('', 'Lean reported these problems with the previously rejected suggestion:');
+    out.push('', 'Lean reported these problems with the most recent rejected suggestion:');
     for (const d of input.diagnostics) out.push(d);
   }
   if (input.rejected.length) {
     out.push(
       '',
-      'The user rejected the following suggestions for this spot. Produce a genuinely DIFFERENT proof',
-      '(different approach or tactics), and avoid any errors reported above for them:',
+      'The following suggestions for this spot were already rejected (by Lean or by the user). Produce a',
+      'genuinely DIFFERENT proof (different approach or tactics) that avoids the problems reported above:',
     );
     input.rejected.forEach((r, i) => out.push(`Rejected suggestion ${i + 1}:`, '```lean', r, '```'));
   }

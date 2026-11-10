@@ -1,9 +1,17 @@
 {
   "name": "Lean Proof Fill",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm",
+  "remoteUser": "node",
+  "remoteEnv": {
+    "PATH": "/home/node/.elan/bin:${containerEnv:PATH}"
+  },
   "customizations": {
     "vscode": {
-      "extensions": ["leanprover.lean4", "GitHub.copilot", "GitHub.copilot-chat"]
+      "extensions": [
+        "leanprover.lean4",
+        "GitHub.copilot",
+        "GitHub.copilot-chat"
+      ]
     }
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",

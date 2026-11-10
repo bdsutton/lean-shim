@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
-import { buildPrompt, extractProof, isUnsolvedGoals, layoutInsertion } from './format';
+import { Baseline, describe, judge, makeBaseline, touches, usesSorry } from './check';
+import { buildPrompt, extractProof, layoutInsertion } from './format';
 import { goalAtCursor, GoalResult } from './goal';
+import { currentDiags, declarationRegion, span, WaitResult, waitForLean } from './lean';
 
 /** What we inserted last time, so pressing the button again can swap it for a new suggestion. */
 interface LastInsertion {
@@ -13,6 +15,10 @@ interface LastInsertion {
   history: string[];
   /** Goal at this spot, found before the first suggestion (reused when regenerating). */
   goal?: GoalResult;
+  /** Lean's messages in the declaration before anything was inserted. */
+  baseline?: Baseline;
+  /** Lean's complaints about the most recent attempt (fed back to the model). */
+  problems?: string[];
 }
 
 let last: LastInsertion | undefined;
@@ -114,21 +120,12 @@ function isRegeneration(editor: vscode.TextEditor): boolean {
   return last.range.contains(editor.selection.active);
 }
 
-/** Lean's complaints about the suggestion the user just rejected (only those inside it). */
+/** Lean's complaints inside the rejected suggestion (used when verification is turned off). */
 function rejectedSuggestionProblems(doc: vscode.TextDocument, prev: vscode.Range): string[] {
-  const out: string[] = [];
-  for (const d of vscode.languages.getDiagnostics(doc.uri)) {
-    if (!d.range.intersection(prev) || d.severity !== vscode.DiagnosticSeverity.Error) continue;
-    // Don't forward the leftover goal list: only the current goal at the cursor is sent.
-    const msg = isUnsolvedGoals(d.message) ? 'unsolved goals (the suggestion did not finish the proof)' : d.message.trim();
-    out.push(`- at \`${doc.lineAt(d.range.start.line).text.trim().slice(0, 120)}\`:\n${indentBlock(msg, '    ')}`);
-    if (out.length >= 10) break;
-  }
-  return out;
-}
-
-function indentBlock(s: string, ind: string) {
-  return s.split('\n').map((l) => ind + l).join('\n');
+  return currentDiags(doc)
+    .filter((d) => d.severity === 'error' && touches(d.range, span(prev)))
+    .slice(0, 10)
+    .map((d) => describe(d, doc.lineAt(d.range.start.line).text));
 }
 
 async function suggest(editor: vscode.TextEditor) {
@@ -149,132 +146,294 @@ async function suggest(editor: vscode.TextEditor) {
   }
 }
 
+type Outcome = 'verified' | 'unverified' | 'failed' | 'cancelled' | 'aborted' | 'error';
+
+async function askModel(
+  model: vscode.LanguageModelChat,
+  prompt: string,
+  token: vscode.CancellationToken,
+): Promise<string | 'cancelled' | 'error'> {
+  try {
+    const response = await model.sendRequest(
+      [vscode.LanguageModelChatMessage.User(prompt)],
+      { justification: 'Lean Proof Fill sends the current Lean file to Copilot to suggest proof steps at your cursor.' },
+      token,
+    );
+    let reply = '';
+    for await (const chunk of response.text) reply += chunk;
+    logSection('RAW REPLY');
+    log.appendLine(reply);
+    return extractProof(reply);
+  } catch (err) {
+    if (token.isCancellationRequested) return 'cancelled';
+    logSection('ERROR');
+    log.appendLine(err instanceof Error ? err.message : String(err));
+    reportError(err);
+    return 'error';
+  }
+}
+
+/** Replace `range` (only ever our own text, or an empty range at the cursor) with `text`. */
+async function replaceOwnText(doc: vscode.TextDocument, range: vscode.Range, text: string): Promise<vscode.Range | undefined> {
+  const edit = new vscode.WorkspaceEdit();
+  edit.replace(doc.uri, range, text);
+  if (!(await vscode.workspace.applyEdit(edit))) return undefined;
+  return new vscode.Range(range.start, doc.positionAt(doc.offsetAt(range.start) + text.length));
+}
+
 async function runSuggest(editor: vscode.TextEditor) {
   const doc = editor.document;
   const cfg = vscode.workspace.getConfiguration('leanProofFill');
   const regenerate = isRegeneration(editor);
+  const verify = cfg.get<boolean>('verify', true);
+  const maxAttempts = verify ? Math.min(10, Math.max(1, Math.floor(cfg.get<number>('maxAttempts', 3)))) : 1;
+  const timeoutMs = Math.max(5, cfg.get<number>('verifyTimeoutSeconds', 120)) * 1000;
 
-  // The range we will replace. A fresh suggestion replaces an empty range at the
-  // cursor (pure insertion); a regeneration replaces only our own previous text.
-  const target = regenerate ? last!.range : new vscode.Range(editor.selection.active, editor.selection.active);
-  const history = regenerate ? last!.history : [];
+  // The range we replace: an empty range at the cursor (pure insertion), or our own previous
+  // suggestion when regenerating. Nothing outside it is ever touched.
+  let target = regenerate ? last!.range : new vscode.Range(editor.selection.active, editor.selection.active);
+  const origin = target.start;
+  const history = regenerate ? [...last!.history] : [];
+  let goal = regenerate ? last!.goal : undefined;
+  let baseline = regenerate ? last!.baseline : undefined;
+  let problems: string[] = regenerate
+    ? (last!.problems ?? (verify ? [] : rejectedSuggestionProblems(doc, target)))
+    : [];
 
   const full = doc.getText();
   const before = full.slice(0, doc.offsetAt(target.start));
   const after = full.slice(doc.offsetAt(target.end));
   const linePrefix = doc.lineAt(target.start.line).text.slice(0, target.start.character);
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+  const tabSize = typeof editor.options.tabSize === 'number' ? editor.options.tabSize : 2;
 
   const model = await getModel();
   if (!model) return;
 
-  const startVersion = doc.version;
+  let expectedVersion = doc.version;
+  let outcome = 'failed' as Outcome;
+  let note = '';
+  let attemptsMade = 0;
+  let lastAttemptText: string | undefined;
   statusItem.text = '$(loading~spin) Filling proof…';
-  let goal: GoalResult | undefined;
 
-  const proof = await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: 'Lean Proof Fill',
-      cancellable: true,
-    },
+  logSection(
+    `${new Date().toLocaleString()} — ${regenerate ? 'new suggestion requested for the same spot' : 'new suggestion'}` +
+      ` — model: ${model.name} (${model.family}) — ${vscode.workspace.asRelativePath(doc.uri)}:${origin.line + 1}:${origin.character + 1}`,
+    '=',
+  );
+
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: 'Lean Proof Fill', cancellable: true },
     async (progress, token) => {
+      // Lean only reports goals and messages for parts of the file it has finished checking.
+      let w: WaitResult | undefined;
+      if (!goal || (verify && !baseline)) {
+        progress.report({ message: 'waiting for Lean to finish checking the file…' });
+        w = await waitForLean(doc, timeoutMs, token);
+        if (w === 'cancelled') {
+          outcome = 'cancelled';
+          return;
+        }
+      }
+
       // Only the current goal at the cursor is sent. When regenerating, the goal found the first
       // time is reused: the document now contains the rejected suggestion, which can confuse Lean.
-      if (regenerate && last!.goal) {
-        goal = last!.goal;
-      } else {
+      if (!goal) {
         progress.report({ message: 'getting the goal at the cursor from Lean…' });
-        goal = await goalAtCursor(doc, target.start, token);
+        goal = await goalAtCursor(doc, origin, token);
       }
-      if (token.isCancellationRequested) return undefined;
-
-      const prompt = buildPrompt({
-        before,
-        after,
-        contextLines: cfg.get<number>('contextLines', 400),
-        goal: goal?.goals[0],
-        otherGoals: goal ? goal.goals.length - 1 : 0,
-        diagnostics: regenerate ? rejectedSuggestionProblems(doc, target) : [],
-        rejected: history.slice(-5),
-        extraInstructions: cfg.get<string>('extraInstructions', ''),
-      });
-
-      logSection(
-        `${new Date().toLocaleString()} — ${regenerate ? `regenerating (attempt ${history.length + 1})` : 'new suggestion'}` +
-          ` — model: ${model.name} (${model.family}) — ${vscode.workspace.asRelativePath(doc.uri)}:${target.start.line + 1}:${target.start.character + 1}`,
-        '=',
-      );
       log.appendLine(`Goal source: ${goal ? goal.source : 'none found'}`);
-      logSection('PROMPT');
-      log.appendLine(prompt);
-      if (cfg.get<boolean>('showPromptOnRequest', false)) log.show(true);
 
-      progress.report({ message: regenerate ? `generating a new suggestion with ${model.name}…` : `asking ${model.name}…` });
-      try {
-        const response = await model.sendRequest(
-          [vscode.LanguageModelChatMessage.User(prompt)],
-          { justification: 'Lean Proof Fill sends the current Lean file to Copilot to suggest proof steps at your cursor.' },
-          token,
-        );
-        let reply = '';
-        for await (const chunk of response.text) reply += chunk;
-        logSection('RAW REPLY');
-        log.appendLine(reply);
-        return extractProof(reply);
-      } catch (err) {
-        if (token.isCancellationRequested) {
-          logSection('CANCELLED');
-          return undefined;
+      let canVerify = verify;
+      if (verify && !baseline) {
+        if (w === 'done') {
+          const region = declarationRegion(doc, target);
+          // When regenerating without a stored baseline, leave out messages about our own text.
+          const diags = currentDiags(doc).filter((d) => !(regenerate && touches(d.range, span(target))));
+          baseline = makeBaseline(diags, region, span(target), goal?.goals[0]);
+        } else {
+          canVerify = false;
+          note = w === 'unavailable' ? 'the Lean server is not available, so the suggestion was not checked' : 'Lean took too long to check the file';
+          log.appendLine(`Verification disabled for this request: ${note}`);
         }
-        logSection('ERROR');
-        log.appendLine(err instanceof Error ? err.message : String(err));
-        reportError(err);
-        return undefined;
       }
+
+      for (let attempt = 1; attempt <= (canVerify ? maxAttempts : 1); attempt++) {
+        attemptsMade = attempt;
+        if (token.isCancellationRequested) {
+          outcome = 'cancelled';
+          return;
+        }
+        const prompt = buildPrompt({
+          before,
+          after,
+          contextLines: cfg.get<number>('contextLines', 400),
+          goal: goal?.goals[0],
+          otherGoals: goal ? goal.goals.length - 1 : 0,
+          diagnostics: problems,
+          rejected: history.slice(-5),
+          extraInstructions: cfg.get<string>('extraInstructions', ''),
+        });
+        logSection(`ATTEMPT ${attempt}/${canVerify ? maxAttempts : 1} — PROMPT`);
+        log.appendLine(prompt);
+        if (attempt === 1 && cfg.get<boolean>('showPromptOnRequest', false)) log.show(true);
+
+        const tag = canVerify && maxAttempts > 1 ? `attempt ${attempt}/${maxAttempts}: ` : '';
+        progress.report({ message: `${tag}asking ${model.name}…` });
+        const proof = await askModel(model, prompt, token);
+        if (proof === 'cancelled') {
+          outcome = 'cancelled';
+          return;
+        }
+        if (proof === 'error') {
+          outcome = 'error';
+          return;
+        }
+        if (!proof.trim() || usesSorry(proof)) {
+          // Never inserted: nothing for Lean to check.
+          const why = !proof.trim() ? 'the reply was empty' : 'the suggestion used `sorry` or `admit`, which is not allowed';
+          logSection('REJECTED WITHOUT INSERTING');
+          log.appendLine(why);
+          if (proof.trim()) history.push(proof);
+          problems = [`- ${why}`];
+          continue;
+        }
+        if (doc.isClosed || doc.version !== expectedVersion) {
+          outcome = 'aborted';
+          return;
+        }
+
+        const text = layoutInsertion(proof, linePrefix, eol, tabSize);
+        const range = await replaceOwnText(doc, target, text);
+        if (!range) {
+          vscode.window.showErrorMessage('Lean Proof Fill: could not apply the edit.');
+          outcome = 'error';
+          return;
+        }
+        target = range;
+        expectedVersion = doc.version;
+        lastAttemptText = text;
+        history.push(proof);
+        logSection('INSERTED');
+        log.appendLine(text.replace(/\r\n/g, '\n'));
+
+        if (!canVerify) {
+          outcome = 'unverified';
+          return;
+        }
+
+        progress.report({ message: `${tag}checking the suggestion with Lean…` });
+        const w = await waitForLean(doc, timeoutMs, token);
+        if (doc.isClosed || doc.version !== expectedVersion) {
+          outcome = 'aborted';
+          return;
+        }
+        if (w === 'cancelled') {
+          outcome = 'cancelled';
+          return;
+        }
+        if (w !== 'done') {
+          outcome = 'unverified';
+          note = w === 'timeout' ? `Lean did not finish checking within ${timeoutMs / 1000}s` : 'the Lean server stopped responding';
+          return;
+        }
+
+        const verdict = judge(currentDiags(doc), declarationRegion(doc, target), span(target), baseline!);
+        logSection(verdict.ok ? 'VERIFIED BY LEAN' : 'REJECTED BY LEAN');
+        problems = verdict.problems.map((d) => describe(d, doc.lineAt(d.range.start.line).text));
+        log.appendLine(verdict.ok ? 'No errors in this declaration from the suggestion.' : problems.join('\n'));
+        if (verdict.tolerated) {
+          log.appendLine(`(${verdict.tolerated} error(s) elsewhere in this declaration were already there and were ignored.)`);
+        }
+        if (verdict.ok) {
+          outcome = 'verified';
+          if (verdict.tolerated) note = `${verdict.tolerated} unrelated error(s) already in this declaration were ignored`;
+          return;
+        }
+      }
+      outcome = 'failed';
     },
   );
 
-  if (proof === undefined) return;
-  if (!proof.trim()) {
-    vscode.window.showWarningMessage('Lean Proof Fill: the model returned an empty suggestion. Try again.');
-    return;
-  }
-  if (doc.isClosed) return;
-  if (doc.version !== startVersion) {
-    // Positions may have shifted; refuse rather than risk touching the wrong text.
-    vscode.window.showWarningMessage('Lean Proof Fill: the file changed while the suggestion was generated. Please try again.');
-    return;
-  }
-
-  const eol = doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
-  const tabSize = typeof editor.options.tabSize === 'number' ? editor.options.tabSize : 2;
-  const text = layoutInsertion(proof, linePrefix, eol, tabSize);
-
-  const ok = await editor.edit(
-    (b) => (target.isEmpty ? b.insert(target.start, text) : b.replace(target, text)),
-    { undoStopBefore: true, undoStopAfter: true },
-  );
-  if (!ok) {
-    vscode.window.showErrorMessage('Lean Proof Fill: could not apply the edit.');
-    return;
-  }
-
-  const start = target.start;
-  const end = doc.positionAt(doc.offsetAt(start) + text.length);
-  const range = new vscode.Range(start, end);
-  editor.selection = new vscode.Selection(end, end);
-  editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
-
-  logSection('INSERTED');
-  log.appendLine(text.replace(/\r\n/g, '\n'));
+  const shown = vscode.window.visibleTextEditors.find((e) => e.document === doc);
+  const remember = () => {
+    last = { uri: doc.uri.toString(), version: doc.version, range: target, text: doc.getText(target), history, goal, baseline, problems };
+  };
+  const placeCursor = () => {
+    if (!shown) return;
+    shown.selection = new vscode.Selection(target.end, target.end);
+    shown.revealRange(target, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+    if (!target.isEmpty) flashHighlight(shown, target);
+  };
   log.appendLine('');
+  log.appendLine(`Outcome: ${outcome}${note ? ` (${note})` : ''}`);
 
-  last = { uri: doc.uri.toString(), version: doc.version, range, text, history: [...history, proof], goal };
-  flashHighlight(editor, range);
-  vscode.window.setStatusBarMessage(
-    'Lean Proof Fill: suggestion inserted — press again for a different one, or Ctrl+Z to undo.',
-    6000,
-  );
+  switch (outcome) {
+    case 'verified':
+      remember();
+      placeCursor();
+      vscode.window.setStatusBarMessage(
+        `$(pass) Lean Proof Fill: suggestion verified by Lean${attemptsMade > 1 ? ` (attempt ${attemptsMade})` : ''}` +
+          `${note ? ` — ${note}` : ''}. Press again for a different one.`,
+        8000,
+      );
+      return;
+    case 'unverified':
+      remember();
+      placeCursor();
+      if (verify) vscode.window.showWarningMessage(`Lean Proof Fill: suggestion inserted but NOT verified — ${note}.`);
+      else vscode.window.setStatusBarMessage('Lean Proof Fill: suggestion inserted — press again for a different one, or Ctrl+Z to undo.', 6000);
+      return;
+    case 'cancelled':
+      if (lastAttemptText !== undefined) {
+        remember();
+        placeCursor();
+        vscode.window.showWarningMessage('Lean Proof Fill: cancelled. The current suggestion was left in place but has NOT been verified.');
+      }
+      return;
+    case 'aborted':
+      last = undefined;
+      vscode.window.showWarningMessage(
+        'Lean Proof Fill: the file changed while working, so it stopped. Any text it inserted was left as is and is not verified.',
+      );
+      return;
+    case 'failed':
+    case 'error': {
+      // Put the file back exactly as it was (only our own text is removed).
+      if (!target.isEmpty && doc.version === expectedVersion && !doc.isClosed) {
+        const restored = await replaceOwnText(doc, target, '');
+        if (restored) target = restored;
+      }
+      remember();
+      placeCursor();
+      if (outcome === 'error' || lastAttemptText === undefined) {
+        if (outcome === 'failed') vscode.window.showWarningMessage('Lean Proof Fill: no usable suggestion was produced. Try again.');
+        return;
+      }
+      const choice = await vscode.window.showWarningMessage(
+        `Lean Proof Fill: none of the ${attemptsMade} suggestion(s) passed Lean's check, so the file was left unchanged. ` +
+          'Press again to keep trying (rejected attempts are remembered).',
+        'Insert last attempt anyway',
+        'Show log',
+      );
+      if (choice === 'Show log') log.show(true);
+      if (choice === 'Insert last attempt anyway' && isRegenerationState(doc)) {
+        const range = await replaceOwnText(doc, last!.range, lastAttemptText);
+        if (range) {
+          target = range;
+          remember();
+          placeCursor();
+        }
+      }
+      return;
+    }
+  }
+}
+
+/** True if the document is still exactly as we left it. */
+function isRegenerationState(doc: vscode.TextDocument): boolean {
+  return !!last && last.uri === doc.uri.toString() && last.version === doc.version && doc.getText(last.range) === last.text;
 }
 
 const highlight = vscode.window.createTextEditorDecorationType({

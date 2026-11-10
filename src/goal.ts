@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { DECLARATION_START, goalsFromUnsolvedMessage, isUnsolvedGoals } from './format';
+import { getLeanClient, LeanClientLike, withTimeout } from './lean';
 
 /** The goals at the cursor; `goals[0]` is the current goal. */
 export interface GoalResult {
@@ -8,29 +9,7 @@ export interface GoalResult {
   source: string;
 }
 
-/** Minimal view of the API the Lean 4 extension (leanprover.lean4) exports. */
-interface LeanClientLike {
-  isRunning(): boolean | undefined;
-  sendRequest(method: string, params: unknown, token?: vscode.CancellationToken): Promise<unknown>;
-}
-interface LeanExports {
-  lean4EnabledFeatures?: Promise<{ clientProvider?: { getActiveClient(): LeanClientLike | undefined } }>;
-}
-
 const REQUEST_TIMEOUT_MS = 20000;
-
-function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
-  return Promise.race([p, new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), ms))]);
-}
-
-async function getLeanClient(): Promise<LeanClientLike | undefined> {
-  const ext = vscode.extensions.getExtension<LeanExports>('leanprover.lean4');
-  if (!ext) return undefined;
-  const exports = ext.isActive ? ext.exports : await ext.activate();
-  const features = exports?.lean4EnabledFeatures ? await withTimeout(exports.lean4EnabledFeatures, 5000) : undefined;
-  const client = features?.clientProvider?.getActiveClient();
-  return client && client.isRunning() ? client : undefined;
-}
 
 /** Ask the Lean server for the goals at a position (the same state the infoview shows). */
 async function plainGoal(

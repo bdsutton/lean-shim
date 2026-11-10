@@ -81,6 +81,24 @@
           "default": "",
           "description": "Copilot model family to use (e.g. \"gpt-4o\", \"claude-sonnet-4\"). Leave empty to use the first available Copilot model. Use the 'Lean Proof Fill: Select Copilot Model' command to pick from a list."
         },
+        "leanProofFill.verify": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check each suggestion with Lean before accepting it. Suggestions that Lean rejects are retried automatically (with Lean's errors fed back to the model); if none passes, the file is left unchanged."
+        },
+        "leanProofFill.maxAttempts": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "How many suggestions to try per button press when verification is on, before giving up."
+        },
+        "leanProofFill.verifyTimeoutSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 5,
+          "description": "How long to wait for Lean to finish checking a suggestion. If Lean takes longer, the suggestion is left in place and marked as not verified."
+        },
         "leanProofFill.contextLines": {
           "type": "number",
           "default": 400,
@@ -105,7 +123,7 @@
     "watch": "tsc -watch -p ./",
     "package": "vsce package --allow-missing-repository --skip-license -o lean-proof-fill.vsix",
     "vscode:prepublish": "npm run compile",
-    "test": "npm run compile && node test/format.test.js"
+    "test": "npm run compile && node test/format.test.js && node test/check.test.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
