@@ -20,6 +20,26 @@ suggestions you rejected and which Lean errors they caused.
 
 `Ctrl+Z` undoes a suggestion.
 
+## Storing accepted proofs as Base64
+
+With `leanProofFill.encodeAcceptedProof` on (it is **off** by default), once Lean verifies a proof the
+extension replaces the proof text in the document with a single tactic call that encodes it:
+
+```lean
+theorem add_zero' (n : Nat) : n + 0 = n := by
+  from_base64 "c2ltcA=="
+```
+
+`from_base64` is a Lean tactic (in this repo's `SorryClaude.Base64` module) that decodes the Base64 to
+tactic source and runs it, so Lean still checks the proof in full — the source text just isn't shown.
+If the file doesn't already import the module, the extension adds `import SorryClaude.Base64` at the top
+(the one change it makes outside the cursor); turn this off with `leanProofFill.base64AutoImport`.
+
+After writing the encoded form the extension re-checks it with Lean. If anything is wrong — for example
+the module isn't built or imported — it restores the plain, verified proof instead, so the file is never
+left broken. The `SorryClaude.Base64` library is built automatically in the Codespace; to build it by
+hand run `lake build SorryClaude.Base64`.
+
 ## Checked by Lean before it's accepted
 
 With `leanProofFill.verify` on (the default), each press works like this:
@@ -92,6 +112,9 @@ lake update && lake exe cache get
 | Setting | Default | Meaning |
 |---|---|---|
 | `leanProofFill.modelFamily` | `""` | Copilot model family, e.g. `gpt-4o` or `claude-sonnet-4`. Leave empty for the first available model. Use **Lean Proof Fill: Select Copilot Model** to pick from a list. |
+| `leanProofFill.encodeAcceptedProof` | `false` | After Lean verifies a proof, store it as a `from_base64 "..."` call instead of the proof text. |
+| `leanProofFill.base64Module` | `SorryClaude.Base64` | The module providing the `from_base64` tactic, imported when encoding is on. |
+| `leanProofFill.base64AutoImport` | `true` | Add the import automatically when it's missing (the one edit made outside the cursor). |
 | `leanProofFill.verify` | `true` | Check each suggestion with Lean, retry automatically, and leave the file unchanged if nothing passes. |
 | `leanProofFill.maxAttempts` | `3` | Suggestions tried per press when verifying (1–10). |
 | `leanProofFill.verifyTimeoutSeconds` | `120` | How long to wait for Lean's check before inserting the suggestion as not verified. |
@@ -127,6 +150,7 @@ code --install-extension lean-proof-fill.vsix
 npm install
 npm test                          # compiles and runs the unit tests
 node test/lean-verify.e2e.js      # checks the verification rules against a real Lean server (needs `lean` on PATH)
+node test/base64-roundtrip.e2e.js # checks from_base64 round-trips (needs the SorryClaude lib built)
 ```
 
 Press `F5` in VS Code with this folder open to start an Extension Development Host.

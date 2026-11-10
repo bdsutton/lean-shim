@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { Baseline, describe, judge, makeBaseline, touches, usesSorry } from './check';
+import { hasImport, importInsertOffset, tacticCall } from './encode';
 import { buildPrompt, extractProof, layoutInsertion } from './format';
 import { goalAtCursor, GoalResult } from './goal';
 import { currentDiags, declarationRegion, span, WaitResult, waitForLean } from './lean';
@@ -349,6 +350,12 @@ async function runSuggest(editor: vscode.TextEditor) {
         if (verdict.ok) {
           outcome = 'verified';
           if (verdict.tolerated) note = `${verdict.tolerated} unrelated error(s) already in this declaration were ignored`;
+          if (cfg.get<boolean>('encodeAcceptedProof', false)) {
+            const enc = await storeAsBase64(doc, target, proof, linePrefix, eol, tabSize, baseline!, timeoutMs, cfg, progress, token);
+            target = enc.range;
+            expectedVersion = doc.version;
+            if (enc.note) note = note ? `${note}; ${enc.note}` : enc.note;
+          }
           return;
         }
       }
@@ -429,6 +436,81 @@ async function runSuggest(editor: vscode.TextEditor) {
       return;
     }
   }
+}
+
+/**
+ * Replace a verified proof with a `from_base64 "..."` tactic call, adding the import if needed, then
+ * re-check with Lean. On any problem (e.g. the module isn't built/imported) the plain, verified proof
+ * is restored, so this never leaves a broken file.
+ */
+async function storeAsBase64(
+  doc: vscode.TextDocument,
+  target: vscode.Range,
+  proof: string,
+  linePrefix: string,
+  eol: string,
+  tabSize: number,
+  baseline: Baseline,
+  timeoutMs: number,
+  cfg: vscode.WorkspaceConfiguration,
+  progress: vscode.Progress<{ message?: string }>,
+  token: vscode.CancellationToken,
+): Promise<{ range: vscode.Range; note?: string }> {
+  const moduleName = (cfg.get<string>('base64Module', 'SorryClaude.Base64') || 'SorryClaude.Base64').trim();
+  const autoImport = cfg.get<boolean>('base64AutoImport', true);
+  const plainText = doc.getText(target);
+  const needImport = !hasImport(doc.getText(), moduleName);
+  if (needImport && !autoImport) {
+    return { range: target, note: `kept as plain text (the file does not import \`${moduleName}\`)` };
+  }
+  if (token.isCancellationRequested) return { range: target };
+  progress.report({ message: 'storing the proof as Base64…' });
+
+  // Add the import if missing (the only change made outside the inserted range).
+  let importText = '';
+  let importRange: vscode.Range | undefined;
+  if (needImport) {
+    importText = `import ${moduleName}${eol}`;
+    const at = doc.positionAt(importInsertOffset(doc.getText()));
+    const r = await replaceOwnText(doc, new vscode.Range(at, at), importText);
+    if (!r) return { range: target, note: 'kept as plain text (could not add the import)' };
+    importRange = r;
+    const startOff = doc.offsetAt(target.start) + importText.length; // import is entirely above the proof
+    target = new vscode.Range(doc.positionAt(startOff), doc.positionAt(startOff + plainText.length));
+  }
+
+  // Replace the proof with the tactic call.
+  const encodedText = layoutInsertion(tacticCall(proof), linePrefix, eol, tabSize);
+  const encRange = await replaceOwnText(doc, target, encodedText);
+  if (!encRange) {
+    if (importRange) await replaceOwnText(doc, importRange, '');
+    return { range: target, note: 'kept as plain text (could not write the encoded proof)' };
+  }
+  target = encRange;
+  logSection('ENCODED AS BASE64');
+  log.appendLine(encodedText.replace(/\r\n/g, '\n'));
+
+  // Re-verify the encoded form.
+  const w = await waitForLean(doc, timeoutMs, token);
+  const verdict =
+    w === 'done' && !doc.isClosed ? judge(currentDiags(doc), declarationRegion(doc, target), span(target), baseline) : undefined;
+  if (verdict?.ok) {
+    return { range: target, note: needImport ? `stored as Base64 (added \`import ${moduleName}\`)` : 'stored as Base64' };
+  }
+
+  // Something went wrong: restore the plain, verified proof and remove any import we added.
+  logSection('BASE64 RE-CHECK FAILED — RESTORED THE PLAIN PROOF');
+  if (verdict) log.appendLine(verdict.problems.map((d) => describe(d, doc.lineAt(d.range.start.line).text)).join('\n'));
+  else log.appendLine(`Lean did not confirm the encoded proof (${w}).`);
+  const back = await replaceOwnText(doc, target, plainText);
+  if (back) target = back;
+  if (importRange) {
+    const startOff = doc.offsetAt(target.start) - importText.length;
+    await replaceOwnText(doc, importRange, '');
+    target = new vscode.Range(doc.positionAt(startOff), doc.positionAt(startOff + plainText.length));
+  }
+  const reason = w === 'done' ? 'the encoded proof did not check' : `Lean did not finish checking it (${w})`;
+  return { range: target, note: `kept as plain text (${reason}; is \`${moduleName}\` built and imported?)` };
 }
 
 /** True if the document is still exactly as we left it. */
