@@ -1,0 +1,105 @@
+{
+  "name": "lean-proof-fill",
+  "displayName": "Lean Proof Fill (Copilot)",
+  "description": "Insert AI-suggested Lean 4 proof steps at the cursor using GitHub Copilot. Press again to get a different suggestion.",
+  "version": "0.1.0",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "lean",
+    "lean4",
+    "copilot",
+    "proof",
+    "theorem prover"
+  ],
+  "activationEvents": [
+    "onLanguage:lean4"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "leanProofFill.suggest",
+        "title": "Suggest Proof Steps at Cursor",
+        "category": "Lean Proof Fill",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "leanProofFill.selectModel",
+        "title": "Select Copilot Model",
+        "category": "Lean Proof Fill"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "leanProofFill.suggest",
+          "when": "editorLangId == lean4",
+          "group": "navigation"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "leanProofFill.suggest",
+          "when": "editorLangId == lean4",
+          "group": "navigation@100"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "leanProofFill.suggest",
+          "when": "editorLangId == lean4"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "leanProofFill.suggest",
+        "key": "ctrl+alt+l",
+        "mac": "cmd+alt+l",
+        "when": "editorTextFocus && editorLangId == lean4 && !editorReadonly"
+      }
+    ],
+    "configuration": {
+      "title": "Lean Proof Fill",
+      "properties": {
+        "leanProofFill.modelFamily": {
+          "type": "string",
+          "default": "",
+          "description": "Copilot model family to use (e.g. \"gpt-4o\", \"claude-sonnet-4\"). Leave empty to use the first available Copilot model. Use the 'Lean Proof Fill: Select Copilot Model' command to pick from a list."
+        },
+        "leanProofFill.contextLines": {
+          "type": "number",
+          "default": 400,
+          "minimum": 20,
+          "description": "Maximum number of lines of the file (centred on the cursor) sent to the model as context."
+        },
+        "leanProofFill.extraInstructions": {
+          "type": "string",
+          "default": "",
+          "description": "Additional instructions appended to the prompt (e.g. \"Prefer Mathlib tactics like linarith and simp\")."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package --allow-missing-repository --skip-license",
+    "vscode:prepublish": "npm run compile",
+    "test": "npm run compile && node test/format.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "1.90.0",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "^5.6.0"
+  }
+}

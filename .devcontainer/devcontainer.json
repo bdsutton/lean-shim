@@ -1,0 +1,11 @@
+{
+  "name": "Lean Proof Fill",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm",
+  "customizations": {
+    "vscode": {
+      "extensions": ["leanprover.lean4", "GitHub.copilot", "GitHub.copilot-chat"]
+    }
+  },
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "postAttachCommand": "code --install-extension ${containerWorkspaceFolder}/lean-proof-fill-0.1.0.vsix --force"
+}
