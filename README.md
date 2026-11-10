@@ -34,7 +34,10 @@ automatically on every request, turn on `leanProofFill.showPromptOnRequest`.
   account has Copilot. The extension uses VS Code's Language Model API (`vscode.lm`), so you don't
   need an API key.
 * The **Lean 4** extension (`leanprover.lean4`), so `.lean` files get the `lean4` language ID.
-  Its error messages, including *unsolved goals* with the goal state, are sent to the model as context.
+  The extension asks the Lean server for the goal at the cursor (the state the infoview shows) and
+  sends only the current goal to the model, not other goals or messages from elsewhere in the file.
+  If Lean can't provide it, the *unsolved goals* error for the proof you're in is used instead,
+  trimmed to its first goal. When you retry, Lean's errors on the rejected suggestion are also sent.
 * VS Code 1.90 or newer.
 
 The first time you run it, VS Code asks you to allow the extension to use Copilot. Choose **Allow**.

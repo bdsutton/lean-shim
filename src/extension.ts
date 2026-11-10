@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { buildPrompt, extractProof, layoutInsertion } from './format';
+import { buildPrompt, extractProof, isUnsolvedGoals, layoutInsertion } from './format';
+import { goalAtCursor, GoalResult } from './goal';
 
 /** What we inserted last time, so pressing the button again can swap it for a new suggestion. */
 interface LastInsertion {
@@ -10,6 +11,8 @@ interface LastInsertion {
   text: string;
   /** Raw proofs suggested so far at this spot (most recent last). */
   history: string[];
+  /** Goal at this spot, found before the first suggestion (reused when regenerating). */
+  goal?: GoalResult;
 }
 
 let last: LastInsertion | undefined;
@@ -111,22 +114,15 @@ function isRegeneration(editor: vscode.TextEditor): boolean {
   return last.range.contains(editor.selection.active);
 }
 
-function describeDiagnostics(doc: vscode.TextDocument, cursor: vscode.Position, prev?: vscode.Range): string[] {
+/** Lean's complaints about the suggestion the user just rejected (only those inside it). */
+function rejectedSuggestionProblems(doc: vscode.TextDocument, prev: vscode.Range): string[] {
   const out: string[] = [];
-  const diags = vscode.languages.getDiagnostics(doc.uri);
-  const window = 60;
-  for (const d of diags) {
-    const near =
-      d.range.contains(cursor) ||
-      Math.abs(d.range.start.line - cursor.line) <= window ||
-      (prev && d.range.intersection(prev));
-    if (!near) continue;
-    const sev = ['error', 'warning', 'info', 'hint'][d.severity] ?? 'info';
-    const where = prev && d.range.intersection(prev)
-      ? 'in the previously rejected suggestion'
-      : `at \`${doc.lineAt(d.range.start.line).text.trim().slice(0, 120)}\``;
-    out.push(`- [${sev}] ${where}:\n${indentBlock(d.message.trim(), '    ')}`);
-    if (out.length >= 15) break;
+  for (const d of vscode.languages.getDiagnostics(doc.uri)) {
+    if (!d.range.intersection(prev) || d.severity !== vscode.DiagnosticSeverity.Error) continue;
+    // Don't forward the leftover goal list: only the current goal at the cursor is sent.
+    const msg = isUnsolvedGoals(d.message) ? 'unsolved goals (the suggestion did not finish the proof)' : d.message.trim();
+    out.push(`- at \`${doc.lineAt(d.range.start.line).text.trim().slice(0, 120)}\`:\n${indentBlock(msg, '    ')}`);
+    if (out.length >= 10) break;
   }
   return out;
 }
@@ -168,37 +164,52 @@ async function runSuggest(editor: vscode.TextEditor) {
   const after = full.slice(doc.offsetAt(target.end));
   const linePrefix = doc.lineAt(target.start.line).text.slice(0, target.start.character);
 
-  const prompt = buildPrompt({
-    before,
-    after,
-    contextLines: cfg.get<number>('contextLines', 400),
-    diagnostics: describeDiagnostics(doc, target.start, regenerate ? target : undefined),
-    rejected: history.slice(-5),
-    extraInstructions: cfg.get<string>('extraInstructions', ''),
-  });
-
   const model = await getModel();
   if (!model) return;
 
   const startVersion = doc.version;
   statusItem.text = '$(loading~spin) Filling proof…';
-
-  logSection(
-    `${new Date().toLocaleString()} — ${regenerate ? `regenerating (attempt ${history.length + 1})` : 'new suggestion'}` +
-      ` — model: ${model.name} (${model.family}) — ${vscode.workspace.asRelativePath(doc.uri)}:${target.start.line + 1}:${target.start.character + 1}`,
-    '=',
-  );
-  logSection('PROMPT');
-  log.appendLine(prompt);
-  if (cfg.get<boolean>('showPromptOnRequest', false)) log.show(true);
+  let goal: GoalResult | undefined;
 
   const proof = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
-      title: regenerate ? `Lean Proof Fill: generating a new suggestion (${model.name})…` : `Lean Proof Fill: asking ${model.name}…`,
+      title: 'Lean Proof Fill',
       cancellable: true,
     },
-    async (_progress, token) => {
+    async (progress, token) => {
+      // Only the current goal at the cursor is sent. When regenerating, the goal found the first
+      // time is reused: the document now contains the rejected suggestion, which can confuse Lean.
+      if (regenerate && last!.goal) {
+        goal = last!.goal;
+      } else {
+        progress.report({ message: 'getting the goal at the cursor from Lean…' });
+        goal = await goalAtCursor(doc, target.start, token);
+      }
+      if (token.isCancellationRequested) return undefined;
+
+      const prompt = buildPrompt({
+        before,
+        after,
+        contextLines: cfg.get<number>('contextLines', 400),
+        goal: goal?.goals[0],
+        otherGoals: goal ? goal.goals.length - 1 : 0,
+        diagnostics: regenerate ? rejectedSuggestionProblems(doc, target) : [],
+        rejected: history.slice(-5),
+        extraInstructions: cfg.get<string>('extraInstructions', ''),
+      });
+
+      logSection(
+        `${new Date().toLocaleString()} — ${regenerate ? `regenerating (attempt ${history.length + 1})` : 'new suggestion'}` +
+          ` — model: ${model.name} (${model.family}) — ${vscode.workspace.asRelativePath(doc.uri)}:${target.start.line + 1}:${target.start.character + 1}`,
+        '=',
+      );
+      log.appendLine(`Goal source: ${goal ? goal.source : 'none found'}`);
+      logSection('PROMPT');
+      log.appendLine(prompt);
+      if (cfg.get<boolean>('showPromptOnRequest', false)) log.show(true);
+
+      progress.report({ message: regenerate ? `generating a new suggestion with ${model.name}…` : `asking ${model.name}…` });
       try {
         const response = await model.sendRequest(
           [vscode.LanguageModelChatMessage.User(prompt)],
@@ -258,7 +269,7 @@ async function runSuggest(editor: vscode.TextEditor) {
   log.appendLine(text.replace(/\r\n/g, '\n'));
   log.appendLine('');
 
-  last = { uri: doc.uri.toString(), version: doc.version, range, text, history: [...history, proof] };
+  last = { uri: doc.uri.toString(), version: doc.version, range, text, history: [...history, proof], goal };
   flashHighlight(editor, range);
   vscode.window.setStatusBarMessage(
     'Lean Proof Fill: suggestion inserted — press again for a different one, or Ctrl+Z to undo.',

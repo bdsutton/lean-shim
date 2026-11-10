@@ -70,7 +70,11 @@ export interface PromptInput {
   after: string;
   /** Max lines of context to send. */
   contextLines: number;
-  /** Lean diagnostics worth showing the model. */
+  /** The current goal at the cursor (pretty-printed by Lean), if it could be determined. */
+  goal?: string;
+  /** How many further goals remain at the cursor besides the current one (not sent). */
+  otherGoals?: number;
+  /** Lean errors reported on the previously rejected suggestion. */
   diagnostics: string[];
   /** Suggestions already rejected by the user at this spot. */
   rejected: string[];
@@ -123,8 +127,18 @@ export function buildPrompt(input: PromptInput): string {
     out.push('', 'Additional instructions from the user:', input.extraInstructions.trim());
   }
   out.push('', '```lean', file, '```');
+  if (input.goal) {
+    out.push('', 'The current goal at the cursor (from the Lean server) is:', '```lean', input.goal, '```');
+    if (input.otherGoals) {
+      out.push(
+        `(${input.otherGoals} other goal${input.otherGoals === 1 ? '' : 's'} also remain${input.otherGoals === 1 ? 's' : ''} at this point; they are not shown.)`,
+      );
+    }
+  } else {
+    out.push('', 'The goal at the cursor could not be obtained from Lean; infer it from the surrounding code.');
+  }
   if (input.diagnostics.length) {
-    out.push('', 'Current Lean messages near the cursor (these may include the goal state):');
+    out.push('', 'Lean reported these problems with the previously rejected suggestion:');
     for (const d of input.diagnostics) out.push(d);
   }
   if (input.rejected.length) {
@@ -137,3 +151,32 @@ export function buildPrompt(input: PromptInput): string {
   }
   return out.join('\n');
 }
+
+// ---------------------------------------------------------------------------
+// Goal helpers
+// ---------------------------------------------------------------------------
+
+const UNSOLVED = /^unsolved goals\s*\n/;
+
+export function isUnsolvedGoals(message: string): boolean {
+  return UNSOLVED.test(message.replace(/\r\n/g, '\n'));
+}
+
+/** Split Lean's goal list (goals separated by blank lines) into individual goals. */
+export function splitGoals(text: string): string[] {
+  return text
+    .replace(/\r\n/g, '\n')
+    .split(/\n\s*\n/)
+    .map((g) => g.replace(/\s+$/, ''))
+    .filter((g) => g.trim() !== '');
+}
+
+/** Goals listed in an "unsolved goals" error message. */
+export function goalsFromUnsolvedMessage(message: string): string[] {
+  const m = message.replace(/\r\n/g, '\n');
+  return isUnsolvedGoals(m) ? splitGoals(m.replace(UNSOLVED, '')) : [];
+}
+
+/** Lines that start a new top-level declaration (used to keep goal lookups within one proof). */
+export const DECLARATION_START =
+  /^(@\[[^\]]*\]\s*)?((private|protected|noncomputable|partial|unsafe|nonrec)\s+)*(theorem|lemma|def|example|instance|abbrev|structure|class|inductive|opaque|axiom|namespace|section|end)\b/;
