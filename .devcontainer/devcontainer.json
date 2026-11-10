@@ -7,5 +7,5 @@
     }
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",
-  "postAttachCommand": "code --install-extension ${containerWorkspaceFolder}/lean-proof-fill-0.1.0.vsix --force"
+  "postAttachCommand": "bash .devcontainer/install-extension.sh"
 }
