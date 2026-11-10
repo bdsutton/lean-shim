@@ -466,34 +466,39 @@ async function storeAsBase64(
   if (token.isCancellationRequested) return { range: target };
   progress.report({ message: 'storing the proof as Base64…' });
 
-  // Add the import if missing (the only change made outside the inserted range).
-  let importText = '';
-  let importRange: vscode.Range | undefined;
-  if (needImport) {
-    importText = `import ${moduleName}${eol}`;
-    const at = doc.positionAt(importInsertOffset(doc.getText()));
-    const r = await replaceOwnText(doc, new vscode.Range(at, at), importText);
-    if (!r) return { range: target, note: 'kept as plain text (could not add the import)' };
-    importRange = r;
-    const startOff = doc.offsetAt(target.start) + importText.length; // import is entirely above the proof
-    target = new vscode.Range(doc.positionAt(startOff), doc.positionAt(startOff + plainText.length));
-  }
-
-  // Replace the proof with the tactic call.
+  // Capture offsets BEFORE editing: Position objects do not track edits, so once a line is inserted
+  // above the proof, a stale Position no longer points at the proof. Offsets do shift predictably.
   const encodedText = layoutInsertion(tacticCall(proof), linePrefix, eol, tabSize);
-  const encRange = await replaceOwnText(doc, target, encodedText);
-  if (!encRange) {
-    if (importRange) await replaceOwnText(doc, importRange, '');
+  const importText = needImport ? `import ${moduleName}${eol}` : '';
+  const importOffset = needImport ? importInsertOffset(doc.getText()) : 0; // always above the proof
+  const proofStartOff = doc.offsetAt(target.start);
+
+  // Apply the import insert (if any) and the proof→tactic-call replacement as ONE atomic edit, so
+  // both resolve against the current coordinates and I don't have to track intermediate positions.
+  const edit = new vscode.WorkspaceEdit();
+  if (needImport) edit.insert(doc.uri, doc.positionAt(importOffset), importText);
+  edit.replace(doc.uri, target, encodedText);
+  if (!(await vscode.workspace.applyEdit(edit))) {
     return { range: target, note: 'kept as plain text (could not write the encoded proof)' };
   }
-  target = encRange;
+  const encStart = proofStartOff + importText.length; // the import (if added) sits entirely above
+  target = new vscode.Range(doc.positionAt(encStart), doc.positionAt(encStart + encodedText.length));
   logSection('ENCODED AS BASE64');
   log.appendLine(encodedText.replace(/\r\n/g, '\n'));
+
+  // Guard against any position miscalculation before trusting the result.
+  if (doc.getText(target) !== encodedText) {
+    logSection('BASE64 PLACEMENT CHECK FAILED — RESTORED THE PLAIN PROOF');
+    await undoBase64(doc, moduleName, importText, encodedText, plainText);
+    return { range: findText(doc, plainText, proofStartOff) ?? target, note: 'kept as plain text (could not place the encoded proof safely)' };
+  }
 
   // Re-verify the encoded form.
   const w = await waitForLean(doc, timeoutMs, token);
   const verdict =
-    w === 'done' && !doc.isClosed ? judge(currentDiags(doc), declarationRegion(doc, target), span(target), baseline) : undefined;
+    w === 'done' && !doc.isClosed && doc.getText(target) === encodedText
+      ? judge(currentDiags(doc), declarationRegion(doc, target), span(target), baseline)
+      : undefined;
   if (verdict?.ok) {
     return { range: target, note: needImport ? `stored as Base64 (added \`import ${moduleName}\`)` : 'stored as Base64' };
   }
@@ -502,15 +507,49 @@ async function storeAsBase64(
   logSection('BASE64 RE-CHECK FAILED — RESTORED THE PLAIN PROOF');
   if (verdict) log.appendLine(verdict.problems.map((d) => describe(d, doc.lineAt(d.range.start.line).text)).join('\n'));
   else log.appendLine(`Lean did not confirm the encoded proof (${w}).`);
-  const back = await replaceOwnText(doc, target, plainText);
-  if (back) target = back;
-  if (importRange) {
-    const startOff = doc.offsetAt(target.start) - importText.length;
-    await replaceOwnText(doc, importRange, '');
-    target = new vscode.Range(doc.positionAt(startOff), doc.positionAt(startOff + plainText.length));
-  }
+  const restored = await undoBase64(doc, moduleName, importText, encodedText, plainText);
   const reason = w === 'done' ? 'the encoded proof did not check' : `Lean did not finish checking it (${w})`;
-  return { range: target, note: `kept as plain text (${reason}; is \`${moduleName}\` built and imported?)` };
+  return {
+    range: restored ?? findText(doc, plainText, proofStartOff) ?? target,
+    note: `kept as plain text (${reason}; is \`${moduleName}\` built and imported?)`,
+  };
+}
+
+/** Undo encoding: turn the tactic call back into the plain proof and drop the import we added. */
+async function undoBase64(
+  doc: vscode.TextDocument,
+  moduleName: string,
+  importText: string,
+  encodedText: string,
+  plainText: string,
+): Promise<vscode.Range | undefined> {
+  const encAt = doc.getText().indexOf(encodedText);
+  if (encAt < 0) return undefined; // the document moved on; leave it as is
+  const edit = new vscode.WorkspaceEdit();
+  edit.replace(doc.uri, new vscode.Range(doc.positionAt(encAt), doc.positionAt(encAt + encodedText.length)), plainText);
+  let shift = 0;
+  if (importText) {
+    const impAt = doc.getText().indexOf(importText);
+    if (impAt >= 0 && impAt < encAt && hasImport(doc.getText(), moduleName)) {
+      edit.delete(doc.uri, new vscode.Range(doc.positionAt(impAt), doc.positionAt(impAt + importText.length)));
+      shift = importText.length;
+    }
+  }
+  if (!(await vscode.workspace.applyEdit(edit))) return undefined;
+  const start = encAt - shift;
+  return new vscode.Range(doc.positionAt(start), doc.positionAt(start + plainText.length));
+}
+
+/** Range of `text` in the document nearest `nearOff`, or undefined if absent. */
+function findText(doc: vscode.TextDocument, text: string, nearOff: number): vscode.Range | undefined {
+  const full = doc.getText();
+  const i = full.indexOf(text);
+  if (i < 0) return undefined;
+  let best = i;
+  for (let j = i; j >= 0; j = full.indexOf(text, j + 1)) {
+    if (Math.abs(j - nearOff) < Math.abs(best - nearOff)) best = j;
+  }
+  return new vscode.Range(doc.positionAt(best), doc.positionAt(best + text.length));
 }
 
 /** True if the document is still exactly as we left it. */
