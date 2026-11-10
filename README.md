@@ -20,6 +20,27 @@ suggestions you rejected and which Lean errors they caused.
 
 `Ctrl+Z` undoes a suggestion.
 
+## Checked by Lean before it's accepted
+
+With `leanProofFill.verify` on (the default), each press works like this:
+
+1. Copilot suggests proof steps, which are inserted at the cursor.
+2. The extension waits for Lean to finish checking the file, then looks at Lean's messages for the
+   theorem you're in. The suggestion is accepted only if it adds no errors and no `sorry` warning,
+   and the gap's own *unsolved goals* error is gone. Suggestions containing `sorry`/`admit` are
+   rejected without being inserted.
+3. If Lean rejects it, the extension asks again, sending Lean's errors and the rejected attempts,
+   and replaces only its own inserted text. It tries up to `leanProofFill.maxAttempts` times (default 3).
+4. If an attempt passes, the status bar shows **✓ suggestion verified by Lean**. If none does, the
+   file is put back exactly as it was, and you can choose **Insert last attempt anyway**. Pressing
+   the button again keeps trying and remembers the rejected attempts.
+
+Errors that were already in the theorem and are unrelated to the gap (same message at the same place)
+don't block acceptance; the status bar mentions them. If Lean takes longer than
+`leanProofFill.verifyTimeoutSeconds`, or the Lean server isn't running, the suggestion is inserted
+but clearly marked as **not verified**. Every attempt and Lean's verdict on it is recorded in the
+output panel (see below).
+
 ## Seeing the prompt sent to the model
 
 Every request is logged to the **Lean Proof Fill** output panel. Each entry shows the model used, the
@@ -71,6 +92,9 @@ lake update && lake exe cache get
 | Setting | Default | Meaning |
 |---|---|---|
 | `leanProofFill.modelFamily` | `""` | Copilot model family, e.g. `gpt-4o` or `claude-sonnet-4`. Leave empty for the first available model. Use **Lean Proof Fill: Select Copilot Model** to pick from a list. |
+| `leanProofFill.verify` | `true` | Check each suggestion with Lean, retry automatically, and leave the file unchanged if nothing passes. |
+| `leanProofFill.maxAttempts` | `3` | Suggestions tried per press when verifying (1–10). |
+| `leanProofFill.verifyTimeoutSeconds` | `120` | How long to wait for Lean's check before inserting the suggestion as not verified. |
 | `leanProofFill.contextLines` | `400` | Maximum number of lines of the file sent as context. The header and imports are always included. |
 | `leanProofFill.showPromptOnRequest` | `false` | Open the output panel with the prompt and reply on every request. |
 | `leanProofFill.extraInstructions` | `""` | Extra text added to the prompt, e.g. "Prefer `omega` and `simp`". |
@@ -101,7 +125,8 @@ code --install-extension lean-proof-fill.vsix
 
 ```bash
 npm install
-npm test          # compiles and runs the formatting unit tests
+npm test                          # compiles and runs the unit tests
+node test/lean-verify.e2e.js      # checks the verification rules against a real Lean server (needs `lean` on PATH)
 ```
 
 Press `F5` in VS Code with this folder open to start an Extension Development Host.
