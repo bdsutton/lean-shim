@@ -1,8 +1,11 @@
 # Lean project so files in this repo (e.g. examples/) can `import Mathlib`.
-# There are no build targets: the examples are deliberately unfinished proofs.
+# It also builds the SorryClaude library, which provides the `from_base64` tactic.
 name = "sorry_claude"
 
 [[require]]
 name = "mathlib"
 git = "https://github.com/leanprover-community/mathlib4"
 rev = "v4.35.0"
+
+[[lean_lib]]
+name = "SorryClaude"

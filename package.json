@@ -99,6 +99,21 @@
           "minimum": 5,
           "description": "How long to wait for Lean to finish checking a suggestion. If Lean takes longer, the suggestion is left in place and marked as not verified."
         },
+        "leanProofFill.encodeAcceptedProof": {
+          "type": "boolean",
+          "default": false,
+          "description": "After a proof is verified by Lean, replace it in the document with a `from_base64 \"...\"` tactic call that encodes the proof, instead of the proof text. Requires leanProofFill.verify. The file must import the tactic module (see leanProofFill.base64Module); it can be added automatically."
+        },
+        "leanProofFill.base64Module": {
+          "type": "string",
+          "default": "SorryClaude.Base64",
+          "description": "The Lean module providing the `from_base64` tactic, imported when leanProofFill.encodeAcceptedProof is on."
+        },
+        "leanProofFill.base64AutoImport": {
+          "type": "boolean",
+          "default": true,
+          "description": "If the Base64 tactic module is not imported, add the import automatically (this is the one change made outside the cursor). If off, the proof is left as plain text when the import is missing."
+        },
         "leanProofFill.contextLines": {
           "type": "number",
           "default": 400,
@@ -123,7 +138,7 @@
     "watch": "tsc -watch -p ./",
     "package": "vsce package --allow-missing-repository --skip-license -o lean-proof-fill.vsix",
     "vscode:prepublish": "npm run compile",
-    "test": "npm run compile && node test/format.test.js && node test/check.test.js"
+    "test": "npm run compile && node test/format.test.js && node test/check.test.js && node test/encode.test.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
