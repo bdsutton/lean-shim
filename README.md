@@ -55,6 +55,8 @@ This repository is also a Lean project that depends on [Mathlib](https://github.
 created, it downloads Mathlib's prebuilt files with `lake exe cache get`. This takes a few minutes and
 about 5 GB of disk. Any `.lean` file in the repo can then `import Mathlib`; try `examples/MathlibDemo.lean`.
 
+`lake`, `lean` and `elan` are on the PATH in the Codespace's terminals (`~/.elan/bin`).
+
 Mathlib uses a lot of memory: a 2-core Codespace (8 GB RAM) works, and a 4-core machine is noticeably faster.
 
 To move to a newer Mathlib, change `rev` in `lakefile.toml` and the version in `lean-toolchain` to
