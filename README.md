@@ -56,27 +56,24 @@ The first time you run it, VS Code asks you to allow the extension to use Copilo
 
 ## Install in a Codespace
 
-1. Build the package (or use the prebuilt `lean-proof-fill-0.1.0.vsix`):
-   ```bash
-   npm install
-   npm run package
-   ```
-2. In the Codespace, open the Extensions view, click **…**, choose **Install from VSIX…**, and pick the
-   `.vsix` file. You can also run this in the Codespace terminal:
-   ```bash
-   code --install-extension lean-proof-fill-0.1.0.vsix
-   ```
+**In a Codespace for this repository:** nothing to do. Each time you open the Codespace, it builds the
+extension from the current source and installs it (`.devcontainer/install-extension.sh`). After you
+pull or edit the source, rebuild and reinstall with:
 
-To install it automatically in every new Codespace, commit the `.vsix` to your repo and add this
-to `.devcontainer/devcontainer.json`:
+```bash
+bash .devcontainer/install-extension.sh
+```
 
-```jsonc
-{
-  "customizations": {
-    "vscode": { "extensions": ["leanprover.lean4", "GitHub.copilot-chat"] }
-  },
-  "postAttachCommand": "code --install-extension ${containerWorkspaceFolder}/tools/lean-proof-fill-0.1.0.vsix"
-}
+Then run **Developer: Reload Window**.
+
+The built `lean-proof-fill.vsix` is not committed (it's in `.gitignore`), so pulls never conflict on it.
+
+**In another repository's Codespace:** build the package here with `npm install && npm run package`.
+Then copy `lean-proof-fill.vsix` into that Codespace and install it from the Extensions view
+(**… → Install from VSIX…**) or with:
+
+```bash
+code --install-extension lean-proof-fill.vsix
 ```
 
 ## Development
