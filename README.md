@@ -20,6 +20,14 @@ suggestions you rejected and which Lean errors they caused.
 
 `Ctrl+Z` undoes a suggestion.
 
+## Seeing the prompt sent to the model
+
+Every request is logged to the **Lean Proof Fill** output panel. Each entry shows the model used, the
+full prompt (file context, Lean messages, rejected suggestions), the model's raw reply, and the exact
+text inserted. To open it, run **Lean Proof Fill: Show Prompt and Response Log** from the Command
+Palette, or pick *Lean Proof Fill* in the Output panel's drop-down (**View → Output**). To open it
+automatically on every request, turn on `leanProofFill.showPromptOnRequest`.
+
 ## Requirements
 
 * **GitHub Copilot Chat** installed and signed in. It is available in Codespaces by default if your
@@ -43,6 +51,7 @@ The first time you run it, VS Code asks you to allow the extension to use Copilo
 |---|---|---|
 | `leanProofFill.modelFamily` | `""` | Copilot model family, e.g. `gpt-4o` or `claude-sonnet-4`. Leave empty for the first available model. Use **Lean Proof Fill: Select Copilot Model** to pick from a list. |
 | `leanProofFill.contextLines` | `400` | Maximum number of lines of the file sent as context. The header and imports are always included. |
+| `leanProofFill.showPromptOnRequest` | `false` | Open the output panel with the prompt and reply on every request. |
 | `leanProofFill.extraInstructions` | `""` | Extra text added to the prompt, e.g. "Prefer `omega` and `simp`". |
 
 ## Install in a Codespace

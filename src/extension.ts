@@ -15,8 +15,10 @@ interface LastInsertion {
 let last: LastInsertion | undefined;
 let busy = false;
 let statusItem: vscode.StatusBarItem;
+let log: vscode.OutputChannel;
 
 export function activate(context: vscode.ExtensionContext) {
+  log = vscode.window.createOutputChannel('Lean Proof Fill');
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusItem.command = 'leanProofFill.suggest';
   setIdleStatus();
@@ -24,6 +26,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     statusItem,
+    log,
+    vscode.commands.registerCommand('leanProofFill.showLog', () => log.show(true)),
     vscode.commands.registerTextEditorCommand('leanProofFill.suggest', (editor) => suggest(editor)),
     vscode.commands.registerCommand('leanProofFill.selectModel', selectModel),
     vscode.window.onDidChangeActiveTextEditor(updateStatusVisibility),
@@ -179,6 +183,15 @@ async function runSuggest(editor: vscode.TextEditor) {
   const startVersion = doc.version;
   statusItem.text = '$(loading~spin) Filling proof…';
 
+  logSection(
+    `${new Date().toLocaleString()} — ${regenerate ? `regenerating (attempt ${history.length + 1})` : 'new suggestion'}` +
+      ` — model: ${model.name} (${model.family}) — ${vscode.workspace.asRelativePath(doc.uri)}:${target.start.line + 1}:${target.start.character + 1}`,
+    '=',
+  );
+  logSection('PROMPT');
+  log.appendLine(prompt);
+  if (cfg.get<boolean>('showPromptOnRequest', false)) log.show(true);
+
   const proof = await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
@@ -194,9 +207,16 @@ async function runSuggest(editor: vscode.TextEditor) {
         );
         let reply = '';
         for await (const chunk of response.text) reply += chunk;
+        logSection('RAW REPLY');
+        log.appendLine(reply);
         return extractProof(reply);
       } catch (err) {
-        if (token.isCancellationRequested) return undefined;
+        if (token.isCancellationRequested) {
+          logSection('CANCELLED');
+          return undefined;
+        }
+        logSection('ERROR');
+        log.appendLine(err instanceof Error ? err.message : String(err));
         reportError(err);
         return undefined;
       }
@@ -234,6 +254,10 @@ async function runSuggest(editor: vscode.TextEditor) {
   editor.selection = new vscode.Selection(end, end);
   editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
 
+  logSection('INSERTED');
+  log.appendLine(text.replace(/\r\n/g, '\n'));
+  log.appendLine('');
+
   last = { uri: doc.uri.toString(), version: doc.version, range, text, history: [...history, proof] };
   flashHighlight(editor, range);
   vscode.window.setStatusBarMessage(
@@ -250,6 +274,11 @@ const highlight = vscode.window.createTextEditorDecorationType({
 function flashHighlight(editor: vscode.TextEditor, range: vscode.Range) {
   editor.setDecorations(highlight, [range]);
   setTimeout(() => editor.setDecorations(highlight, []), 1500);
+}
+
+function logSection(title: string, ch = '-') {
+  log.appendLine('');
+  log.appendLine(`${ch.repeat(4)} ${title} ${ch.repeat(Math.max(4, 76 - title.length))}`);
 }
 
 function reportError(err: unknown) {

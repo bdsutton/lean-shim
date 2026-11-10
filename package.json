@@ -35,6 +35,12 @@
         "command": "leanProofFill.selectModel",
         "title": "Select Copilot Model",
         "category": "Lean Proof Fill"
+      },
+      {
+        "command": "leanProofFill.showLog",
+        "title": "Show Prompt and Response Log",
+        "category": "Lean Proof Fill",
+        "icon": "$(output)"
       }
     ],
     "menus": {
@@ -85,6 +91,11 @@
           "type": "string",
           "default": "",
           "description": "Additional instructions appended to the prompt (e.g. \"Prefer Mathlib tactics like linarith and simp\")."
+        },
+        "leanProofFill.showPromptOnRequest": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically open the 'Lean Proof Fill' output panel showing the prompt sent to the model (and its reply) each time a suggestion is requested."
         }
       }
     }
