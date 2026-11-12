@@ -8,7 +8,10 @@ export function toBase64(text: string): string {
 
 /** The tactic call that reproduces `proof`. The proof is dedented so decoding yields column-0 tactics. */
 export function tacticCall(proof: string): string {
-  return `from_base64 "${toBase64(dedent(proof).replace(/\r\n/g, '\n'))}"`;
+  const lines = dedent(proof).replace(/\r\n/g, '\n').split('\n');
+  while (lines.length && lines[0].trim() === '') lines.shift();
+  while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+  return `from_base64 "${toBase64(lines.join('\n'))}"`;
 }
 
 function escapeForRegex(s: string): string {
