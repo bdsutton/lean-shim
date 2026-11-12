@@ -32,6 +32,12 @@
         "icon": "$(sparkle)"
       },
       {
+        "command": "leanProofFill.encodeSelection",
+        "title": "Encode Selection as from_base64",
+        "category": "Lean Proof Fill",
+        "icon": "$(lock)"
+      },
+      {
         "command": "leanProofFill.selectModel",
         "title": "Select Copilot Model",
         "category": "Lean Proof Fill"
@@ -56,11 +62,20 @@
           "command": "leanProofFill.suggest",
           "when": "editorLangId == lean4",
           "group": "navigation@100"
+        },
+        {
+          "command": "leanProofFill.encodeSelection",
+          "when": "editorLangId == lean4 && editorHasSelection",
+          "group": "navigation@101"
         }
       ],
       "commandPalette": [
         {
           "command": "leanProofFill.suggest",
+          "when": "editorLangId == lean4"
+        },
+        {
+          "command": "leanProofFill.encodeSelection",
           "when": "editorLangId == lean4"
         }
       ]

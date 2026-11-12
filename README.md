@@ -35,6 +35,11 @@ tactic source and runs it, so Lean still checks the proof in full — the source
 If the file doesn't already import the module, the extension adds `import SorryClaude.Base64` at the top
 (the one change it makes outside the cursor); turn this off with `leanProofFill.base64AutoImport`.
 
+You can also encode an existing proof by hand: select the tactics and run
+**Lean Proof Fill: Encode Selection as from_base64** from the Command Palette (or the right-click menu). It replaces the
+selection with the equivalent `from_base64 "..."` call and adds the import if needed. Unlike the
+automatic path, this one does not re-check with Lean, so encode a proof you know already works.
+
 After writing the encoded form the extension re-checks it with Lean. If anything is wrong — for example
 the module isn't built or imported — it restores the plain, verified proof instead, so the file is never
 left broken. The `SorryClaude.Base64` library is built automatically in the Codespace; to build it by

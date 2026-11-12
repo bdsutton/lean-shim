@@ -39,6 +39,7 @@ export function activate(context: vscode.ExtensionContext) {
     log,
     vscode.commands.registerCommand('leanProofFill.showLog', () => log.show(true)),
     vscode.commands.registerTextEditorCommand('leanProofFill.suggest', (editor) => suggest(editor)),
+    vscode.commands.registerTextEditorCommand('leanProofFill.encodeSelection', (editor) => encodeSelection(editor)),
     vscode.commands.registerCommand('leanProofFill.selectModel', selectModel),
     vscode.window.onDidChangeActiveTextEditor(updateStatusVisibility),
   );
@@ -182,6 +183,61 @@ async function replaceOwnText(doc: vscode.TextDocument, range: vscode.Range, tex
   return new vscode.Range(range.start, doc.positionAt(doc.offsetAt(range.start) + text.length));
 }
 
+/** Replace the selected proof text with an equivalent `from_base64 "..."` tactic call. */
+async function encodeSelection(editor: vscode.TextEditor) {
+  const doc = editor.document;
+  if (doc.languageId !== 'lean4') {
+    vscode.window.showWarningMessage('Lean Proof Fill: this command only works in Lean 4 files.');
+    return;
+  }
+  const sel = editor.selection;
+  if (sel.isEmpty || !doc.getText(sel).trim()) {
+    vscode.window.showWarningMessage('Lean Proof Fill: select the proof tactics to encode first.');
+    return;
+  }
+  const cfg = vscode.workspace.getConfiguration('leanProofFill');
+  const moduleName = (cfg.get<string>('base64Module', 'SorryClaude.Base64') || 'SorryClaude.Base64').trim();
+  const autoImport = cfg.get<boolean>('base64AutoImport', true);
+  const eol = doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+  const tabSize = typeof editor.options.tabSize === 'number' ? editor.options.tabSize : 2;
+
+  const selected = doc.getText(sel);
+  const linePrefix = doc.lineAt(sel.start.line).text.slice(0, sel.start.character);
+  const encodedText = layoutInsertion(tacticCall(selected), linePrefix, eol, tabSize);
+  const needImport = !hasImport(doc.getText(), moduleName);
+  const willImport = needImport && autoImport;
+
+  const selStartOff = doc.offsetAt(sel.start);
+  const importText = willImport ? `import ${moduleName}${eol}` : '';
+  const edit = new vscode.WorkspaceEdit();
+  if (willImport) edit.insert(doc.uri, doc.positionAt(importInsertOffset(doc.getText())), importText);
+  edit.replace(doc.uri, sel, encodedText);
+  if (!(await vscode.workspace.applyEdit(edit))) {
+    vscode.window.showErrorMessage('Lean Proof Fill: could not replace the selection.');
+    return;
+  }
+
+  // Select the new tactic call and reset any regeneration state.
+  const start = selStartOff + importText.length;
+  const range = new vscode.Range(doc.positionAt(start), doc.positionAt(start + encodedText.length));
+  editor.selection = new vscode.Selection(range.start, range.end);
+  editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
+  last = undefined;
+
+  logSection(`${new Date().toLocaleString()} — encoded selection — ${vscode.workspace.asRelativePath(doc.uri)}`);
+  log.appendLine(encodedText.replace(/\r\n/g, '\n'));
+  if (needImport && !autoImport) {
+    vscode.window.showWarningMessage(
+      `Lean Proof Fill: selection encoded, but the file does not import \`${moduleName}\`. Add \`import ${moduleName}\` for \`from_base64\` to work.`,
+    );
+  } else {
+    vscode.window.setStatusBarMessage(
+      `Lean Proof Fill: selection encoded as from_base64${willImport ? ` (added \`import ${moduleName}\`)` : ''}. Ctrl+Z to undo.`,
+      6000,
+    );
+  }
+}
+
 async function runSuggest(editor: vscode.TextEditor) {
   const doc = editor.document;
   const cfg = vscode.workspace.getConfiguration('leanProofFill');
@@ -201,10 +257,6 @@ async function runSuggest(editor: vscode.TextEditor) {
     ? (last!.problems ?? (verify ? [] : rejectedSuggestionProblems(doc, target)))
     : [];
 
-  const full = doc.getText();
-  const before = full.slice(0, doc.offsetAt(target.start));
-  const after = full.slice(doc.offsetAt(target.end));
-  const linePrefix = doc.lineAt(target.start.line).text.slice(0, target.start.character);
   const eol = doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
   const tabSize = typeof editor.options.tabSize === 'number' ? editor.options.tabSize : 2;
 
@@ -260,12 +312,37 @@ async function runSuggest(editor: vscode.TextEditor) {
         }
       }
 
+      // Find where our text should go right now, tolerating benign edits made meanwhile by autosave
+      // (trimming whitespace), formatters, or other extensions. Returns undefined only if the doc is
+      // gone or our own previous text can no longer be found at all.
+      const reanchor = (): vscode.Range | undefined => {
+        if (doc.isClosed) return undefined;
+        if (lastAttemptText === undefined && !regenerate) {
+          // Nothing inserted yet: anchor to the live cursor, which VS Code keeps valid across edits.
+          const cur = editor.document === doc ? editor.selection.active : target.start;
+          return new vscode.Range(cur, cur);
+        }
+        const own = lastAttemptText ?? last!.text; // our current text in the buffer
+        if (doc.getText(target) === own) return target;
+        return findText(doc, own, doc.offsetAt(target.start));
+      };
+
       for (let attempt = 1; attempt <= (canVerify ? maxAttempts : 1); attempt++) {
         attemptsMade = attempt;
         if (token.isCancellationRequested) {
           outcome = 'cancelled';
           return;
         }
+        let anchored = reanchor();
+        if (!anchored) {
+          outcome = 'aborted';
+          return;
+        }
+        target = anchored;
+        const full = doc.getText();
+        const before = full.slice(0, doc.offsetAt(target.start));
+        const after = full.slice(doc.offsetAt(target.end));
+
         const prompt = buildPrompt({
           before,
           after,
@@ -300,11 +377,15 @@ async function runSuggest(editor: vscode.TextEditor) {
           problems = [`- ${why}`];
           continue;
         }
-        if (doc.isClosed || doc.version !== expectedVersion) {
+
+        // Re-anchor once more: the buffer may have been edited while the model was responding.
+        anchored = reanchor();
+        if (!anchored) {
           outcome = 'aborted';
           return;
         }
-
+        target = anchored;
+        const linePrefix = doc.lineAt(target.start.line).text.slice(0, target.start.character);
         const text = layoutInsertion(proof, linePrefix, eol, tabSize);
         const range = await replaceOwnText(doc, target, text);
         if (!range) {
@@ -325,14 +406,41 @@ async function runSuggest(editor: vscode.TextEditor) {
         }
 
         progress.report({ message: `${tag}checking the suggestion with Lean…` });
-        const w = await waitForLean(doc, timeoutMs, token);
-        if (doc.isClosed || doc.version !== expectedVersion) {
+        let w = await waitForLean(doc, timeoutMs, token);
+        if (doc.isClosed) {
           outcome = 'aborted';
           return;
         }
         if (w === 'cancelled') {
           outcome = 'cancelled';
           return;
+        }
+        // The version changes if anything edited the buffer during the check — often not the user but
+        // autosave trimming whitespace, a formatter, or another extension. Tolerate it as long as our
+        // inserted text is still intact: relocate it and wait for Lean on the new version once more.
+        if (doc.version !== expectedVersion) {
+          const relocated = findText(doc, text, doc.offsetAt(target.start));
+          if (!relocated) {
+            outcome = 'aborted';
+            return;
+          }
+          target = relocated;
+          expectedVersion = doc.version;
+          log.appendLine('(the file was edited during checking — relocated the suggestion and re-checked)');
+          w = await waitForLean(doc, timeoutMs, token);
+          if (doc.isClosed) {
+            outcome = 'aborted';
+            return;
+          }
+          if (w === 'cancelled') {
+            outcome = 'cancelled';
+            return;
+          }
+          if (doc.version !== expectedVersion || doc.getText(target) !== text) {
+            outcome = 'unverified';
+            note = 'the file kept changing during checking, so it could not be verified';
+            return;
+          }
         }
         if (w !== 'done') {
           outcome = 'unverified';
@@ -402,15 +510,19 @@ async function runSuggest(editor: vscode.TextEditor) {
     case 'aborted':
       last = undefined;
       vscode.window.showWarningMessage(
-        'Lean Proof Fill: the file changed while working, so it stopped. Any text it inserted was left as is and is not verified.',
+        'Lean Proof Fill: stopped because the editor was closed or the inserted text could no longer be located. Anything left in the file has not been verified.',
       );
       return;
     case 'failed':
     case 'error': {
-      // Put the file back exactly as it was (only our own text is removed).
-      if (!target.isEmpty && doc.version === expectedVersion && !doc.isClosed) {
-        const restored = await replaceOwnText(doc, target, '');
-        if (restored) target = restored;
+      // Put the file back exactly as it was (only our own text is removed). Relocate our text first
+      // in case the buffer shifted (autosave/formatter) since we inserted it.
+      if (!target.isEmpty && !doc.isClosed && lastAttemptText !== undefined) {
+        const here = doc.getText(target) === lastAttemptText ? target : findText(doc, lastAttemptText, doc.offsetAt(target.start));
+        if (here) {
+          const restored = await replaceOwnText(doc, here, '');
+          if (restored) target = restored;
+        }
       }
       remember();
       placeCursor();
