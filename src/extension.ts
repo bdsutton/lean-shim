@@ -85,7 +85,60 @@ async function getModel(): Promise<vscode.LanguageModelChat | undefined> {
   return models[0];
 }
 
+/** Every readable, non-function property of a model object (own and inherited getters). */
+function modelProperties(m: vscode.LanguageModelChat): [string, unknown][] {
+  const seen = new Set<string>();
+  const out: [string, unknown][] = [];
+  for (let o: object | null = m; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) {
+    for (const key of Object.getOwnPropertyNames(o)) {
+      if (key === 'constructor' || key.startsWith('_') || seen.has(key)) continue;
+      seen.add(key);
+      let value: unknown;
+      try {
+        value = (m as unknown as Record<string, unknown>)[key];
+      } catch (e) {
+        value = `<error reading: ${e instanceof Error ? e.message : String(e)}>`;
+      }
+      if (typeof value !== 'function') out.push([key, value]);
+    }
+  }
+  return out;
+}
+
+function formatValue(v: unknown): string {
+  if (typeof v === 'string') return v;
+  try {
+    return JSON.stringify(v) ?? String(v);
+  } catch {
+    return String(v);
+  }
+}
+
+/** Write full information about all available language models to the output panel. */
+async function logAvailableModels(): Promise<void> {
+  const all = await vscode.lm.selectChatModels();
+  const current = vscode.workspace.getConfiguration('leanProofFill').get<string>('modelFamily', '');
+  logSection(`${new Date().toLocaleString()} — AVAILABLE LANGUAGE MODELS (${all.length})`, '=');
+  log.appendLine(`Current leanProofFill.modelFamily: ${current ? `"${current}"` : '(empty: first available Copilot model)'}`);
+  log.appendLine('The picker offers models whose vendor is "copilot".');
+  const known = ['name', 'id', 'vendor', 'family', 'version', 'maxInputTokens'];
+  all.forEach((m, i) => {
+    logSection(`${i + 1}. ${m.name}${m.vendor === 'copilot' ? '' : ' (not offered: vendor is not copilot)'}`);
+    const props = new Map(modelProperties(m));
+    for (const k of known) log.appendLine(`  ${k.padEnd(16)} ${formatValue(props.has(k) ? props.get(k) : (m as unknown as Record<string, unknown>)[k])}`);
+    for (const [k, v] of props) if (!known.includes(k)) log.appendLine(`  ${k.padEnd(16)} ${formatValue(v)}`);
+  });
+  if (!all.length) log.appendLine('No language models are available. Is GitHub Copilot Chat installed and signed in?');
+  log.appendLine('');
+  log.show(true); // reveal the panel without taking focus from the picker
+}
+
 async function selectModel() {
+  try {
+    await logAvailableModels();
+  } catch (e) {
+    log.appendLine(`Could not list models: ${e instanceof Error ? e.message : String(e)}`);
+  }
   const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
   if (!models.length) {
     vscode.window.showErrorMessage('Lean Proof Fill: no Copilot models available. Is GitHub Copilot Chat installed and signed in?');
