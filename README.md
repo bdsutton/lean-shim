@@ -20,30 +20,46 @@ suggestions you rejected and which Lean errors they caused.
 
 `Ctrl+Z` undoes a suggestion. To stop a request in progress, press the button (or shortcut) again and choose **Cancel it**, or use the Cancel button on the progress notification.
 
-## Storing accepted proofs as Base64
+## Accepted proofs are written on one line
 
-With `leanProofFill.encodeAcceptedProof` on (it is **off** by default), once Lean verifies a proof the
-extension replaces the proof text in the document with a single tactic call that encodes it:
+Once Lean verifies a proof, the extension rewrites it on a single line, with tactics joined by `;`:
+
+```lean
+theorem and_swap (p q : Prop) (hp : p) (hq : q) : p ∧ q := by
+  constructor; (· exact hp); · exact hq
+```
+
+Steps that take a whole block of tactics (bullets `·`, `case … =>`, `next =>`, `… := by`, `try`,
+`all_goals`, `first | …` and similar) are wrapped in parentheses when more steps follow, so the block
+doesn't absorb them. The one-line form is re-checked with Lean. If the proof can't be put on one line
+(for example a `calc` block) or the one-line form doesn't check, the verified multi-line proof is kept.
+
+This is controlled by `leanProofFill.acceptedProofFormat`:
+
+- `singleLine` (default): rewrite on one line as described above.
+- `asGenerated`: keep the proof exactly as the model wrote it.
+- `base64`: replace the proof with a `from_base64 "..."` call (see below).
+
+### The `from_base64` tactic
+
+`from_base64` is a Lean tactic (in this repo's `SorryClaude.Base64` module) that decodes Base64 to
+tactic source and runs it, so Lean still checks the proof in full — the source text just isn't shown:
 
 ```lean
 theorem add_zero' (n : Nat) : n + 0 = n := by
   from_base64 "c2ltcA=="
 ```
 
-`from_base64` is a Lean tactic (in this repo's `SorryClaude.Base64` module) that decodes the Base64 to
-tactic source and runs it, so Lean still checks the proof in full — the source text just isn't shown.
-If the file doesn't already import the module, the extension adds `import SorryClaude.Base64` at the top
-(the one change it makes outside the cursor); turn this off with `leanProofFill.base64AutoImport`.
+With `acceptedProofFormat` set to `base64`, the extension writes accepted proofs this way, adding
+`import SorryClaude.Base64` at the top if needed (turn that off with `leanProofFill.base64AutoImport`),
+and re-checks the encoded form, restoring the plain proof if anything is wrong.
 
 You can also encode an existing proof by hand: select the tactics and run
-**Lean Proof Fill: Encode Selection as from_base64** from the Command Palette (or the right-click menu). It replaces the
-selection with the equivalent `from_base64 "..."` call and adds the import if needed. Unlike the
-automatic path, this one does not re-check with Lean, so encode a proof you know already works.
-
-After writing the encoded form the extension re-checks it with Lean. If anything is wrong — for example
-the module isn't built or imported — it restores the plain, verified proof instead, so the file is never
-left broken. The `SorryClaude.Base64` library is built automatically in the Codespace; to build it by
-hand run `lake build SorryClaude.Base64`.
+**Lean Proof Fill: Encode Selection as from_base64** from the Command Palette (or the right-click menu).
+It replaces the selection with the equivalent `from_base64 "..."` call and adds the import if needed.
+Unlike the automatic path, this one does not re-check with Lean, so encode a proof you know already works.
+The `SorryClaude.Base64` library is built automatically in the Codespace; to build it by hand run
+`lake build SorryClaude.Base64`.
 
 ## Checked by Lean before it's accepted
 
@@ -117,8 +133,8 @@ lake update && lake exe cache get
 | Setting | Default | Meaning |
 |---|---|---|
 | `leanProofFill.modelFamily` | `""` | Copilot model family, e.g. `gpt-4o` or `claude-sonnet-4`. Leave empty for the first available model. Use **Lean Proof Fill: Select Copilot Model** to pick from a list. |
-| `leanProofFill.encodeAcceptedProof` | `false` | After Lean verifies a proof, store it as a `from_base64 "..."` call instead of the proof text. |
-| `leanProofFill.base64Module` | `SorryClaude.Base64` | The module providing the `from_base64` tactic, imported when encoding is on. |
+| `leanProofFill.acceptedProofFormat` | `singleLine` | How to write a verified proof: on one line, exactly as generated, or as a `from_base64` call. |
+| `leanProofFill.base64Module` | `SorryClaude.Base64` | The module providing the `from_base64` tactic, imported for the `base64` format and the Encode Selection command. |
 | `leanProofFill.base64AutoImport` | `true` | Add the import automatically when it's missing (the one edit made outside the cursor). |
 | `leanProofFill.modelTimeoutSeconds` | `120` | Cancel a model request that hasn't finished replying within this many seconds. |
 | `leanProofFill.verify` | `true` | Check each suggestion with Lean, retry automatically, and leave the file unchanged if nothing passes. |
@@ -157,6 +173,7 @@ npm install
 npm test                          # compiles and runs the unit tests
 node test/lean-verify.e2e.js      # checks the verification rules against a real Lean server (needs `lean` on PATH)
 node test/base64-roundtrip.e2e.js # checks from_base64 round-trips (needs the SorryClaude lib built)
+node test/singleline.e2e.js       # checks the one-line rewrite of 28 proof shapes with a real Lean
 ```
 
 Press `F5` in VS Code with this folder open to start an Extension Development Host.

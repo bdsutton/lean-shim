@@ -128,6 +128,21 @@ const within = (p, ms) => Promise.race([p.then(() => 'finished'), new Promise((r
   assert(!warnings.some((w) => /already being generated/.test(w)), 'should not still be busy');
   assert(doc.text.includes('  simp\n'));
 
+  // 4. Multi-line proof accepted -> rewritten on one line (and the one-line form re-checked)
+  setup(['```lean\nhave h : 0 + n = n := by\n  simp\nexact h\n```']);
+  diagsFor = (text) => (/exact h/.test(text) ? [] : [{ severity: 0, message: 'unsolved goals\nn : Nat\n⊢ n + 0 = n', range: new Range(new Position(0, 36), new Position(0, 38)) }]);
+  assert.strictEqual(await within(cmd(editor), 5000), 'finished');
+  assert.strictEqual(doc.text, 'theorem t (n : Nat) : n + 0 = n := by\n  (have h : 0 + n = n := by simp); exact h\n\ntheorem u : True := trivial\n');
+
+  // 5. Lean rejects the one-line form -> the verified multi-line proof is restored
+  setup(['```lean\nhave h : 0 + n = n := by\n  simp\nexact h\n```']);
+  diagsFor = (text) =>
+    /exact h/.test(text) && !/; exact h/.test(text)
+      ? []
+      : [{ severity: 0, message: 'boom', range: new Range(new Position(1, 2), new Position(1, 5)) }];
+  assert.strictEqual(await within(cmd(editor), 5000), 'finished');
+  assert.strictEqual(doc.text, 'theorem t (n : Nat) : n + 0 = n := by\n  have h : 0 + n = n := by\n    simp\n  exact h\n\ntheorem u : True := trivial\n');
+
   console.log('flow tests passed');
   process.exit(0);
 })().catch((e) => { console.error(e); process.exit(1); });

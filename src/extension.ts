@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Baseline, describe, judge, makeBaseline, touches, usesSorry } from './check';
 import { hasImport, importInsertOffset, tacticCall } from './encode';
+import { toSingleLine } from './singleline';
 import { buildPrompt, extractProof, layoutInsertion } from './format';
 import { goalAtCursor, GoalResult } from './goal';
 import { currentDiags, declarationRegion, span, WaitResult, waitForLean } from './lean';
@@ -638,7 +639,15 @@ async function runSuggest(editor: vscode.TextEditor) {
         if (verdict.ok) {
           outcome = 'verified';
           if (verdict.tolerated) note = `${verdict.tolerated} unrelated error(s) already in this declaration were ignored`;
-          if (cfg.get<boolean>('encodeAcceptedProof', false)) {
+          const format = cfg.get<string>('acceptedProofFormat', 'singleLine');
+          if (format === 'singleLine') {
+            const enc = await step('rewriting the proof on one line and re-checking it', () =>
+              storeSingleLine(doc, target, proof, linePrefix, eol, tabSize, baseline!, timeoutMs, token),
+            );
+            target = enc.range;
+            expectedVersion = doc.version;
+            if (enc.note) note = note ? `${note}; ${enc.note}` : enc.note;
+          } else if (format === 'base64') {
             const enc = await step('storing the proof as Base64 and re-checking it', () =>
               storeAsBase64(doc, target, proof, linePrefix, eol, tabSize, baseline!, timeoutMs, cfg, progress, token),
             );
@@ -741,6 +750,57 @@ async function runSuggest(editor: vscode.TextEditor) {
       return;
     }
   }
+}
+
+/**
+ * Rewrite a verified proof on a single line, then re-check it with Lean. If the proof can't be put on
+ * one line, or the one-line form doesn't check, the verified multi-line proof is kept/restored.
+ */
+async function storeSingleLine(
+  doc: vscode.TextDocument,
+  target: vscode.Range,
+  proof: string,
+  linePrefix: string,
+  eol: string,
+  tabSize: number,
+  baseline: Baseline,
+  timeoutMs: number,
+  token: vscode.CancellationToken,
+): Promise<{ range: vscode.Range; note?: string }> {
+  const plainText = doc.getText(target);
+  const one = toSingleLine(proof);
+  if (one === undefined) {
+    log.appendLine('This proof cannot be written on one line (e.g. it uses calc); kept as generated.');
+    return { range: target, note: "kept on several lines (this proof can't be written on one line)" };
+  }
+  const oneText = layoutInsertion(one, linePrefix, eol, tabSize);
+  if (oneText === plainText || token.isCancellationRequested) return { range: target };
+
+  const startOff = doc.offsetAt(target.start);
+  const range = await replaceOwnText(doc, target, oneText);
+  if (!range || doc.getText(range) !== oneText) {
+    return { range: findText(doc, plainText, startOff) ?? target, note: 'kept on several lines (could not rewrite it)' };
+  }
+  logSection('REWRITTEN ON ONE LINE');
+  log.appendLine(oneText.replace(/\r\n/g, '\n'));
+
+  const w = await waitForLean(doc, timeoutMs, token);
+  const here = doc.getText(range) === oneText ? range : findText(doc, oneText, startOff);
+  const verdict =
+    w === 'done' && !doc.isClosed && here
+      ? judge(currentDiags(doc), declarationRegion(doc, here), span(here), baseline)
+      : undefined;
+  if (verdict?.ok && here) return { range: here, note: 'written on one line' };
+
+  // Restore the verified multi-line proof.
+  logSection('ONE-LINE RE-CHECK FAILED — RESTORED THE MULTI-LINE PROOF');
+  if (verdict) log.appendLine(verdict.problems.map((d) => describe(d, doc.lineAt(d.range.start.line).text)).join('\n'));
+  else log.appendLine(`Lean did not confirm the one-line form (${w}).`);
+  if (here) {
+    const back = await replaceOwnText(doc, here, plainText);
+    if (back) return { range: back, note: 'kept on several lines (the one-line form did not check)' };
+  }
+  return { range: findText(doc, plainText, startOff) ?? target, note: 'kept on several lines (the one-line form did not check)' };
 }
 
 /**

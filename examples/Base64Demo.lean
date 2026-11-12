@@ -3,9 +3,9 @@ import Mathlib.Basic.Real.Basic
 import SorryClaude.Base64
 
 /-
-Demo of `leanProofFill.encodeAcceptedProof`.
+Demo of the `from_base64` tactic (`leanProofFill.acceptedProofFormat` = "base64").
 
-With that setting on, when Lean verifies a suggestion the extension replaces the proof text with a
+With that format selected, when Lean verifies a suggestion the extension replaces the proof text with a
 `from_base64 "..."` call like the ones below, and (if needed) adds the `import SorryClaude.Base64`
 line above. Each call decodes to real Lean tactics and is checked by Lean exactly as written-out
 tactics would be. Put your cursor on an empty line under the last theorem and press Ctrl+Alt+L to try.
