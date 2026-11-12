@@ -29,4 +29,17 @@ assert.strictEqual(importInsertOffset(f2), 0);
 const f3 = 'import A\ntheorem t := by skip';
 assert.strictEqual(f3.slice(0, importInsertOffset(f3)), 'import A\n');
 
+// tacticCall trims surrounding blank lines
+assert.strictEqual(Buffer.from(/"(.+)"/.exec(tacticCall('\n\nsimp\n\n'))[1], 'base64').toString('utf8'), 'simp');
+
+// Ragged selection (first line unindented, siblings indented) is fixed by reconstructing the first
+// line's indentation (what the Encode-Selection command does) so dedent normalises it to column 0.
+const ragged = 'have h1 : True := trivial\n      have h2 : True := trivial\n      exact h2';
+const reconstructed = ' '.repeat(6) + ragged;  // command prepends the first line's indentation
+const dec = Buffer.from(/"(.+)"/.exec(tacticCall(reconstructed))[1], 'base64').toString('utf8');
+assert.strictEqual(dec, 'have h1 : True := trivial\nhave h2 : True := trivial\nexact h2');
+// without reconstruction the raggedness survives (the bug)
+const bad = Buffer.from(/"(.+)"/.exec(tacticCall(ragged))[1], 'base64').toString('utf8');
+assert(bad.includes('\n      have h2'));
+
 console.log('encode tests passed');

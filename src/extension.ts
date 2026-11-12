@@ -203,7 +203,12 @@ async function encodeSelection(editor: vscode.TextEditor) {
 
   const selected = doc.getText(sel);
   const linePrefix = doc.lineAt(sel.start.line).text.slice(0, sel.start.character);
-  const encodedText = layoutInsertion(tacticCall(selected), linePrefix, eol, tabSize);
+  // The selection usually starts after the first line's indentation, so that line loses its indent
+  // while the rest keep theirs — a ragged block the decoder can't parse. Rebuild the first line's
+  // indentation (from the line prefix, or its column) so tacticCall's dedent normalises it uniformly.
+  const firstIndent = linePrefix.trim() === '' ? linePrefix : ' '.repeat(sel.start.character);
+  const proofText = firstIndent + selected;
+  const encodedText = layoutInsertion(tacticCall(proofText), linePrefix, eol, tabSize);
   const needImport = !hasImport(doc.getText(), moduleName);
   const willImport = needImport && autoImport;
 

@@ -16,6 +16,7 @@ const cases = [
   ['swap', 'p ∧ q → q ∧ p', '(p q : Prop)', 'intro h\nrcases h with ⟨ha, hb⟩\nexact ⟨hb, ha⟩'],
   // model output with indentation + trailing blank line; tacticCall must dedent it
   ['indented', 'n + 0 = n', '(n : Nat)', '    simp\n'],
+  ['block', '(0:Nat) ≤ 1 ∧ (0:Nat) ≤ 2', '', '      have h1 : (0:Nat) ≤ 1 := Nat.zero_le _\n      have h2 : (0:Nat) ≤ 2 := Nat.zero_le _\n      exact ⟨h1, h2⟩'],  // reconstructed ragged selection
 ];
 let out = 'import SorryClaude.Base64\n\n';
 for (const [name, ty, binders, proof] of cases) {
