@@ -24,6 +24,8 @@ interface LastInsertion {
 
 let last: LastInsertion | undefined;
 let busy = false;
+/** Cancels the request in progress (also triggered by the progress notification's Cancel button). */
+let currentRun: vscode.CancellationTokenSource | undefined;
 let statusItem: vscode.StatusBarItem;
 let log: vscode.OutputChannel;
 
@@ -73,13 +75,15 @@ async function getModel(): Promise<vscode.LanguageModelChat | undefined> {
     }
   }
   if (!models.length) {
-    const choice = await vscode.window.showErrorMessage(
-      'Lean Proof Fill: no GitHub Copilot language model is available. Make sure the GitHub Copilot Chat extension is installed and you are signed in.',
-      'Install Copilot Chat',
-    );
-    if (choice) {
-      await vscode.commands.executeCommand('workbench.extensions.installExtension', 'github.copilot-chat');
-    }
+    // Not awaited: an unanswered notification must not keep the command running.
+    void vscode.window
+      .showErrorMessage(
+        'Lean Proof Fill: no GitHub Copilot language model is available. Make sure the GitHub Copilot Chat extension is installed and you are signed in.',
+        'Install Copilot Chat',
+      )
+      .then((choice) => {
+        if (choice) void vscode.commands.executeCommand('workbench.extensions.installExtension', 'github.copilot-chat');
+      });
     return undefined;
   }
   return models[0];
@@ -189,7 +193,11 @@ async function suggest(editor: vscode.TextEditor) {
     return;
   }
   if (busy) {
-    vscode.window.setStatusBarMessage('Lean Proof Fill: a suggestion is already being generated…', 3000);
+    void vscode.window
+      .showInformationMessage('Lean Proof Fill: a suggestion is already being generated.', 'Cancel it')
+      .then((choice) => {
+        if (choice) currentRun?.cancel();
+      });
     return;
   }
   busy = true;
@@ -206,9 +214,56 @@ type Outcome = 'verified' | 'unverified' | 'failed' | 'cancelled' | 'aborted' | 
 async function askModel(
   model: vscode.LanguageModelChat,
   prompt: string,
-  token: vscode.CancellationToken,
+  runToken: vscode.CancellationToken,
 ): Promise<string | 'cancelled' | 'error'> {
+  const timeoutSec = Math.max(10, vscode.workspace.getConfiguration('leanProofFill').get<number>('modelTimeoutSeconds', 120));
+  const cts = new vscode.CancellationTokenSource();
+  const sub = runToken.onCancellationRequested(() => cts.cancel());
+  const token = cts.token;
+  let timedOut = false;
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      cts.cancel();
+      reject(new Error(`the model did not finish responding within ${timeoutSec}s`));
+    }, timeoutSec * 1000);
+  });
+  deadline.catch(() => undefined); // handled where it is raced
+  // End the wait as soon as the run is cancelled, even if the model's stream never yields again.
+  const cancelled = new Promise<never>((_, reject) => {
+    if (token.isCancellationRequested) reject(new Error('cancelled'));
+    token.onCancellationRequested(() => reject(new Error('cancelled')));
+  });
+  cancelled.catch(() => undefined);
   try {
+    return await Promise.race([deadline, cancelled, askModelInner(model, prompt, token)]);
+  } catch (err) {
+    if (runToken.isCancellationRequested && !timedOut) return 'cancelled';
+    logSection('ERROR');
+    log.appendLine(timedOut ? `${model.name} did not finish responding within ${timeoutSec}s; request cancelled.` : err instanceof Error ? err.message : String(err));
+    if (timedOut) {
+      vscode.window.showWarningMessage(
+        `Lean Proof Fill: ${model.name} did not finish responding within ${timeoutSec}s, so the request was cancelled. ` +
+          'Try again, or raise leanProofFill.modelTimeoutSeconds.',
+      );
+    } else {
+      reportError(err);
+    }
+    return 'error';
+  } finally {
+    clearTimeout(timer);
+    sub.dispose();
+    cts.dispose();
+  }
+}
+
+async function askModelInner(
+  model: vscode.LanguageModelChat,
+  prompt: string,
+  token: vscode.CancellationToken,
+): Promise<string> {
+  {
     logSection('MODEL REQUESTED');
     for (const k of ['name', 'id', 'vendor', 'family', 'version', 'maxInputTokens'] as const) {
       log.appendLine(`  ${k.padEnd(16)} ${formatValue(model[k])}`);
@@ -229,13 +284,17 @@ async function askModel(
     const stream = (response as unknown as { stream?: AsyncIterable<unknown> }).stream;
     if (stream) {
       for await (const part of stream) {
+        if (token.isCancellationRequested) throw new Error('cancelled');
         // Text parts are the only parts with a string `value` (data parts have `data`, tool calls `callId`).
         const value = (part as { value?: unknown } | null)?.value;
         if (typeof value === 'string') reply += value;
         else extras.push(describeStreamPart(part));
       }
     } else {
-      for await (const chunk of response.text) reply += chunk;
+      for await (const chunk of response.text) {
+        if (token.isCancellationRequested) throw new Error('cancelled');
+        reply += chunk;
+      }
     }
 
     logSection('MODEL ROUTING INFORMATION');
@@ -251,12 +310,6 @@ async function askModel(
     logSection('RAW REPLY');
     log.appendLine(reply);
     return extractProof(reply);
-  } catch (err) {
-    if (token.isCancellationRequested) return 'cancelled';
-    logSection('ERROR');
-    log.appendLine(err instanceof Error ? err.message : String(err));
-    reportError(err);
-    return 'error';
   }
 }
 
@@ -381,7 +434,12 @@ async function runSuggest(editor: vscode.TextEditor) {
 
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'Lean Proof Fill', cancellable: true },
-    async (progress, token) => {
+    async (progress, progressToken) => {
+      const run = new vscode.CancellationTokenSource();
+      currentRun = run;
+      const sub = progressToken.onCancellationRequested(() => run.cancel());
+      const token = run.token;
+      try {
       // Lean only reports goals and messages for parts of the file it has finished checking.
       let w: WaitResult | undefined;
       if (!goal || (verify && !baseline)) {
@@ -571,6 +629,11 @@ async function runSuggest(editor: vscode.TextEditor) {
         }
       }
       outcome = 'failed';
+      } finally {
+        sub.dispose();
+        run.dispose();
+        if (currentRun === run) currentRun = undefined;
+      }
     },
   );
 
@@ -633,21 +696,27 @@ async function runSuggest(editor: vscode.TextEditor) {
         if (outcome === 'failed') vscode.window.showWarningMessage('Lean Proof Fill: no usable suggestion was produced. Try again.');
         return;
       }
-      const choice = await vscode.window.showWarningMessage(
-        `Lean Proof Fill: none of the ${attemptsMade} suggestion(s) passed Lean's check, so the file was left unchanged. ` +
-          'Press again to keep trying (rejected attempts are remembered).',
-        'Insert last attempt anyway',
-        'Show log',
-      );
-      if (choice === 'Show log') log.show(true);
-      if (choice === 'Insert last attempt anyway' && isRegenerationState(doc)) {
-        const range = await replaceOwnText(doc, last!.range, lastAttemptText);
-        if (range) {
-          target = range;
-          remember();
-          placeCursor();
-        }
-      }
+      // Not awaited: an unanswered notification must not keep the command (and the status bar) busy.
+      const attemptText = lastAttemptText;
+      void vscode.window
+        .showWarningMessage(
+          `Lean Proof Fill: none of the ${attemptsMade} suggestion(s) passed Lean's check, so the file was left unchanged. ` +
+            'Press again to keep trying (rejected attempts are remembered).',
+          'Insert last attempt anyway',
+          'Show log',
+        )
+        .then(async (choice) => {
+          if (choice === 'Show log') log.show(true);
+          // Only if no new request has started and the file is still exactly as we left it.
+          if (choice === 'Insert last attempt anyway' && !busy && isRegenerationState(doc)) {
+            const range = await replaceOwnText(doc, last!.range, attemptText);
+            if (range) {
+              target = range;
+              remember();
+              placeCursor();
+            }
+          }
+        });
       return;
     }
   }
@@ -802,3 +871,6 @@ function reportError(err: unknown) {
     vscode.window.showErrorMessage(`Lean Proof Fill: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
+
+/** Exported for tests only. */
+export { askModel as _askModelForTest };

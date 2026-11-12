@@ -18,7 +18,7 @@ suggestions you rejected and which Lean errors they caused.
 | Command Palette | **Lean Proof Fill: Suggest Proof Steps at Cursor** |
 | Right-click menu | **Suggest Proof Steps at Cursor** |
 
-`Ctrl+Z` undoes a suggestion.
+`Ctrl+Z` undoes a suggestion. To stop a request in progress, press the button (or shortcut) again and choose **Cancel it**, or use the Cancel button on the progress notification.
 
 ## Storing accepted proofs as Base64
 
@@ -120,6 +120,7 @@ lake update && lake exe cache get
 | `leanProofFill.encodeAcceptedProof` | `false` | After Lean verifies a proof, store it as a `from_base64 "..."` call instead of the proof text. |
 | `leanProofFill.base64Module` | `SorryClaude.Base64` | The module providing the `from_base64` tactic, imported when encoding is on. |
 | `leanProofFill.base64AutoImport` | `true` | Add the import automatically when it's missing (the one edit made outside the cursor). |
+| `leanProofFill.modelTimeoutSeconds` | `120` | Cancel a model request that hasn't finished replying within this many seconds. |
 | `leanProofFill.verify` | `true` | Check each suggestion with Lean, retry automatically, and leave the file unchanged if nothing passes. |
 | `leanProofFill.maxAttempts` | `3` | Suggestions tried per press when verifying (1–10). |
 | `leanProofFill.verifyTimeoutSeconds` | `120` | How long to wait for Lean's check before inserting the suggestion as not verified. |

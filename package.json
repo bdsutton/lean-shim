@@ -96,6 +96,12 @@
           "default": "",
           "description": "Copilot model family to use (e.g. \"gpt-4o\", \"claude-sonnet-4\"). Leave empty to use the first available Copilot model. Use the 'Lean Proof Fill: Select Copilot Model' command to pick from a list."
         },
+        "leanProofFill.modelTimeoutSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 10,
+          "description": "How long to wait for the model to finish a reply before cancelling the request (seconds)."
+        },
         "leanProofFill.verify": {
           "type": "boolean",
           "default": true,
@@ -153,7 +159,7 @@
     "watch": "tsc -watch -p ./",
     "package": "vsce package --allow-missing-repository --skip-license -o lean-proof-fill.vsix",
     "vscode:prepublish": "npm run compile",
-    "test": "npm run compile && node test/format.test.js && node test/check.test.js && node test/encode.test.js"
+    "test": "npm run compile && node test/format.test.js && node test/check.test.js && node test/encode.test.js && node test/askmodel.test.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

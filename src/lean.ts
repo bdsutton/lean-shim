@@ -22,7 +22,7 @@ export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | undefined
 export async function getLeanClient(): Promise<LeanClientLike | undefined> {
   const ext = vscode.extensions.getExtension<LeanExports>('leanprover.lean4');
   if (!ext) return undefined;
-  const exports = ext.isActive ? ext.exports : await ext.activate();
+  const exports = ext.isActive ? ext.exports : await withTimeout(Promise.resolve(ext.activate()), 10000);
   const features = exports?.lean4EnabledFeatures ? await withTimeout(exports.lean4EnabledFeatures, 5000) : undefined;
   const client = features?.clientProvider?.getActiveClient();
   return client && client.isRunning() ? client : undefined;
