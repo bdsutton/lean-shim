@@ -19,6 +19,16 @@ export function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | undefined
   ]);
 }
 
+/** A promise that rejects as soon as `token` is cancelled (for racing against slow requests). */
+export function untilCancelled(token: vscode.CancellationToken): Promise<never> {
+  const p = new Promise<never>((_, reject) => {
+    if (token.isCancellationRequested) reject(new Error('cancelled'));
+    token.onCancellationRequested(() => reject(new Error('cancelled')));
+  });
+  p.catch(() => undefined); // handled where it is raced
+  return p;
+}
+
 export async function getLeanClient(): Promise<LeanClientLike | undefined> {
   const ext = vscode.extensions.getExtension<LeanExports>('leanprover.lean4');
   if (!ext) return undefined;
@@ -45,10 +55,14 @@ export async function waitForLean(
   if (!client) return 'unavailable';
   const version = doc.version;
   try {
-    const res = await withTimeout(
-      client.sendRequest('textDocument/waitForDiagnostics', { uri: doc.uri.toString(), version }, token).then(() => true),
-      timeoutMs,
-    );
+    // Raced against cancellation so Cancel ends the wait even if the Lean client ignores the token.
+    const res = await Promise.race([
+      withTimeout(
+        client.sendRequest('textDocument/waitForDiagnostics', { uri: doc.uri.toString(), version }, token).then(() => true),
+        timeoutMs,
+      ),
+      untilCancelled(token),
+    ]);
     if (token.isCancellationRequested) return 'cancelled';
     if (!res) return 'timeout';
   } catch {

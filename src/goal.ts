@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { DECLARATION_START, goalsFromUnsolvedMessage, isUnsolvedGoals } from './format';
-import { getLeanClient, LeanClientLike, withTimeout } from './lean';
+import { getLeanClient, LeanClientLike, untilCancelled, withTimeout } from './lean';
 
 /** The goals at the cursor; `goals[0]` is the current goal. */
 export interface GoalResult {
@@ -19,14 +19,14 @@ async function plainGoal(
   token: vscode.CancellationToken,
 ): Promise<string[] | undefined> {
   try {
-    const res = (await withTimeout(
+    const res = (await Promise.race([untilCancelled(token), withTimeout(
       client.sendRequest(
         '$/lean/plainGoal',
         { textDocument: { uri: doc.uri.toString() }, position: { line: pos.line, character: pos.character } },
         token,
       ),
       REQUEST_TIMEOUT_MS,
-    )) as { goals?: unknown } | null | undefined;
+    )])) as { goals?: unknown } | null | undefined;
     const goals = Array.isArray(res?.goals) ? res!.goals.filter((g): g is string => typeof g === 'string') : [];
     return goals.length ? goals : undefined;
   } catch {

@@ -439,12 +439,32 @@ async function runSuggest(editor: vscode.TextEditor) {
       currentRun = run;
       const sub = progressToken.onCancellationRequested(() => run.cancel());
       const token = run.token;
+
+      // Run one step, logging when it starts and finishes, and showing elapsed time, so a slow step
+      // is visible (and cancellable) rather than looking like a freeze.
+      const clock = () => new Date().toLocaleTimeString();
+      const step = async <T>(label: string, work: () => Promise<T>): Promise<T> => {
+        const t0 = Date.now();
+        log.appendLine(`[${clock()}] ${label}…`);
+        statusItem.tooltip = `Lean Proof Fill: ${label}… (click to cancel)`;
+        progress.report({ message: `${label}…` });
+        const tick = setInterval(
+          () => progress.report({ message: `${label}… ${Math.round((Date.now() - t0) / 1000)}s` }),
+          5000,
+        );
+        try {
+          return await work();
+        } finally {
+          clearInterval(tick);
+          log.appendLine(`[${clock()}] ${label}: finished after ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+        }
+      };
       try {
       // Lean only reports goals and messages for parts of the file it has finished checking.
       let w: WaitResult | undefined;
       if (!goal || (verify && !baseline)) {
-        progress.report({ message: 'waiting for Lean to finish checking the file…' });
-        w = await waitForLean(doc, timeoutMs, token);
+        w = await step('waiting for Lean to finish checking the file', () => waitForLean(doc, timeoutMs, token));
+        log.appendLine(`  result: ${w}`);
         if (w === 'cancelled') {
           outcome = 'cancelled';
           return;
@@ -454,8 +474,7 @@ async function runSuggest(editor: vscode.TextEditor) {
       // Only the current goal at the cursor is sent. When regenerating, the goal found the first
       // time is reused: the document now contains the rejected suggestion, which can confuse Lean.
       if (!goal) {
-        progress.report({ message: 'getting the goal at the cursor from Lean…' });
-        goal = await goalAtCursor(doc, origin, token);
+        goal = await step('getting the goal at the cursor from Lean', () => goalAtCursor(doc, origin, token));
       }
       log.appendLine(`Goal source: ${goal ? goal.source : 'none found'}`);
 
@@ -519,8 +538,7 @@ async function runSuggest(editor: vscode.TextEditor) {
         if (attempt === 1 && cfg.get<boolean>('showPromptOnRequest', false)) log.show(true);
 
         const tag = canVerify && maxAttempts > 1 ? `attempt ${attempt}/${maxAttempts}: ` : '';
-        progress.report({ message: `${tag}asking ${model.name}…` });
-        const proof = await askModel(model, prompt, token);
+        const proof = await step(`${tag}asking ${model.name}`, () => askModel(model, prompt, token));
         if (proof === 'cancelled') {
           outcome = 'cancelled';
           return;
@@ -566,8 +584,8 @@ async function runSuggest(editor: vscode.TextEditor) {
           return;
         }
 
-        progress.report({ message: `${tag}checking the suggestion with Lean…` });
-        let w = await waitForLean(doc, timeoutMs, token);
+        let w = await step(`${tag}checking the suggestion with Lean`, () => waitForLean(doc, timeoutMs, token));
+        log.appendLine(`  result: ${w}`);
         if (doc.isClosed) {
           outcome = 'aborted';
           return;
@@ -588,7 +606,8 @@ async function runSuggest(editor: vscode.TextEditor) {
           target = relocated;
           expectedVersion = doc.version;
           log.appendLine('(the file was edited during checking — relocated the suggestion and re-checked)');
-          w = await waitForLean(doc, timeoutMs, token);
+          w = await step(`${tag}re-checking with Lean after the file was edited`, () => waitForLean(doc, timeoutMs, token));
+          log.appendLine(`  result: ${w}`);
           if (doc.isClosed) {
             outcome = 'aborted';
             return;
@@ -620,7 +639,9 @@ async function runSuggest(editor: vscode.TextEditor) {
           outcome = 'verified';
           if (verdict.tolerated) note = `${verdict.tolerated} unrelated error(s) already in this declaration were ignored`;
           if (cfg.get<boolean>('encodeAcceptedProof', false)) {
-            const enc = await storeAsBase64(doc, target, proof, linePrefix, eol, tabSize, baseline!, timeoutMs, cfg, progress, token);
+            const enc = await step('storing the proof as Base64 and re-checking it', () =>
+              storeAsBase64(doc, target, proof, linePrefix, eol, tabSize, baseline!, timeoutMs, cfg, progress, token),
+            );
             target = enc.range;
             expectedVersion = doc.version;
             if (enc.note) note = note ? `${note}; ${enc.note}` : enc.note;

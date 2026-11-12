@@ -159,7 +159,7 @@
     "watch": "tsc -watch -p ./",
     "package": "vsce package --allow-missing-repository --skip-license -o lean-proof-fill.vsix",
     "vscode:prepublish": "npm run compile",
-    "test": "npm run compile && node test/format.test.js && node test/check.test.js && node test/encode.test.js && node test/askmodel.test.js"
+    "test": "npm run compile && node test/format.test.js && node test/check.test.js && node test/encode.test.js && node test/askmodel.test.js && node test/waitforlean.test.js && node test/flow.test.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
