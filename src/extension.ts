@@ -209,13 +209,45 @@ async function askModel(
   token: vscode.CancellationToken,
 ): Promise<string | 'cancelled' | 'error'> {
   try {
+    logSection('MODEL REQUESTED');
+    for (const k of ['name', 'id', 'vendor', 'family', 'version', 'maxInputTokens'] as const) {
+      log.appendLine(`  ${k.padEnd(16)} ${formatValue(model[k])}`);
+    }
     const response = await model.sendRequest(
       [vscode.LanguageModelChatMessage.User(prompt)],
       { justification: 'Lean Proof Fill sends the current Lean file to Copilot to suggest proof steps at your cursor.' },
       token,
     );
+
+    // VS Code's API has no field naming the model that actually served the request (Copilot's
+    // routing notice is shown only in its own chat UI). Log everything the response does expose:
+    // extra properties on the response object, and any non-text parts in its stream, so routing
+    // metadata appears here if Copilot ever attaches it.
+    const extraProps = Object.getOwnPropertyNames(response).filter((k) => k !== 'text' && k !== 'stream');
+    const extras: string[] = extraProps.map((k) => `response.${k} = ${formatValue((response as unknown as Record<string, unknown>)[k])}`);
     let reply = '';
-    for await (const chunk of response.text) reply += chunk;
+    const stream = (response as unknown as { stream?: AsyncIterable<unknown> }).stream;
+    if (stream) {
+      for await (const part of stream) {
+        // Text parts are the only parts with a string `value` (data parts have `data`, tool calls `callId`).
+        const value = (part as { value?: unknown } | null)?.value;
+        if (typeof value === 'string') reply += value;
+        else extras.push(describeStreamPart(part));
+      }
+    } else {
+      for await (const chunk of response.text) reply += chunk;
+    }
+
+    logSection('MODEL ROUTING INFORMATION');
+    if (extras.length) for (const e of extras) log.appendLine(`  ${e}`);
+    else {
+      log.appendLine(
+        `  The response did not report which model served it. It was sent to "${model.name}" (id ${model.id}, family ${model.family}).`,
+      );
+      if (/auto/i.test(`${model.id} ${model.family} ${model.name}`)) {
+        log.appendLine('  This is an auto-routing model, so Copilot chose the actual model; VS Code does not expose which one.');
+      }
+    }
     logSection('RAW REPLY');
     log.appendLine(reply);
     return extractProof(reply);
@@ -226,6 +258,19 @@ async function askModel(
     reportError(err);
     return 'error';
   }
+}
+
+/** Describe a non-text part of a response stream (data parts are decoded when they're text/JSON). */
+function describeStreamPart(part: unknown): string {
+  const kind = (part as { constructor?: { name?: string } } | null)?.constructor?.name ?? typeof part;
+  const p = part as { mimeType?: unknown; data?: unknown } | null;
+  if (p && typeof p.mimeType === 'string' && p.data instanceof Uint8Array) {
+    const textual = /^(text\/|application\/(json|.*\+json))/.test(p.mimeType);
+    const body = textual ? Buffer.from(p.data).toString('utf8') : `<${p.data.length} bytes>`;
+    return `${kind} [${p.mimeType}]: ${body.length > 2000 ? body.slice(0, 2000) + '…' : body}`;
+  }
+  const s = formatValue(part);
+  return `${kind}: ${s.length > 2000 ? s.slice(0, 2000) + '…' : s}`;
 }
 
 /** Replace `range` (only ever our own text, or an empty range at the cursor) with `text`. */
