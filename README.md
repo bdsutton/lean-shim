@@ -146,9 +146,13 @@ lake update && lake exe cache get
 
 ## Install in a Codespace
 
-**In a Codespace for this repository:** nothing to do. Each time you open the Codespace, it builds the
-extension from the current source and installs it (`.devcontainer/install-extension.sh`). After you
-pull or edit the source, rebuild and reinstall with:
+**In a Codespace for this repository:** nothing to do. The extension is built while the Codespace is
+created and installed when you first open it (`.devcontainer/install-extension.sh`). After that, opening
+the Codespace only rebuilds the extension if its source changed since the last build, and only
+reinstalls it if the installed copy is out of date, so an unchanged start takes a fraction of a second.
+
+After you pull or edit the source, the next start picks up the change automatically. To apply it right
+away, run the script yourself (add `--force` to rebuild and reinstall regardless):
 
 ```bash
 bash .devcontainer/install-extension.sh
@@ -156,7 +160,8 @@ bash .devcontainer/install-extension.sh
 
 Then run **Developer: Reload Window**.
 
-The built `lean-proof-fill.vsix` is not committed (it's in `.gitignore`), so pulls never conflict on it.
+The built `lean-proof-fill.vsix` is not committed (`*.vsix` is in `.gitignore`), so pulls never conflict
+on it. Please don't force-add it.
 
 **In another repository's Codespace:** build the package here with `npm install && npm run package`.
 Then copy `lean-proof-fill.vsix` into that Codespace and install it from the Extensions view
