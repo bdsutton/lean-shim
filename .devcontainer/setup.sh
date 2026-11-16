@@ -9,7 +9,5 @@ for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
 done
 # Fetch Mathlib and download its prebuilt files (building it from source would take hours)
 lake exe cache get
-# Build the from_base64 tactic library (used by the base64 proof format and Encode Selection; no Mathlib needed)
-lake build LeanShim.Base64
 # Build the extension now, during creation, so the first start only has to install it
 bash .devcontainer/install-extension.sh --build-only

@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { Baseline, describe, judge, makeBaseline, touches, usesSorry } from './check';
-import { hasImport, importInsertOffset, tacticCall } from './encode';
 import { toSingleLine } from './singleline';
 import { checkLeanReady, Readiness, trackLeanProgress } from './ready';
 import { watchLeanStartup } from './startup';
@@ -51,7 +50,6 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('leanShim.showLog', () => log.show(true)),
     vscode.commands.registerCommand('leanShim.showStartupTimeline', () => log.show(true)),
     vscode.commands.registerTextEditorCommand('leanShim.suggest', (editor) => suggest(editor)),
-    vscode.commands.registerTextEditorCommand('leanShim.encodeSelection', (editor) => encodeSelection(editor)),
     vscode.window.onDidChangeActiveTextEditor(updateStatusVisibility),
   );
 }
@@ -320,66 +318,6 @@ async function replaceOwnText(doc: vscode.TextDocument, range: vscode.Range, tex
   edit.replace(doc.uri, range, text);
   if (!(await vscode.workspace.applyEdit(edit))) return undefined;
   return new vscode.Range(range.start, doc.positionAt(doc.offsetAt(range.start) + text.length));
-}
-
-/** Replace the selected proof text with an equivalent `from_base64 "..."` tactic call. */
-async function encodeSelection(editor: vscode.TextEditor) {
-  const doc = editor.document;
-  if (doc.languageId !== 'lean4') {
-    vscode.window.showWarningMessage('Lean Shim: this command only works in Lean 4 files.');
-    return;
-  }
-  const sel = editor.selection;
-  if (sel.isEmpty || !doc.getText(sel).trim()) {
-    vscode.window.showWarningMessage('Lean Shim: select the proof tactics to encode first.');
-    return;
-  }
-  const cfg = vscode.workspace.getConfiguration('leanShim');
-  const moduleName = (cfg.get<string>('base64Module', 'LeanShim.Base64') || 'LeanShim.Base64').trim();
-  const autoImport = cfg.get<boolean>('base64AutoImport', true);
-  const eol = doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
-  const tabSize = typeof editor.options.tabSize === 'number' ? editor.options.tabSize : 2;
-
-  const selected = doc.getText(sel);
-  const linePrefix = doc.lineAt(sel.start.line).text.slice(0, sel.start.character);
-  // The selection usually starts after the first line's indentation, so that line loses its indent
-  // while the rest keep theirs — a ragged block the decoder can't parse. Rebuild the first line's
-  // indentation (from the line prefix, or its column) so tacticCall's dedent normalises it uniformly.
-  const firstIndent = linePrefix.trim() === '' ? linePrefix : ' '.repeat(sel.start.character);
-  const proofText = firstIndent + selected;
-  const encodedText = layoutInsertion(tacticCall(proofText), linePrefix, eol, tabSize);
-  const needImport = !hasImport(doc.getText(), moduleName);
-  const willImport = needImport && autoImport;
-
-  const selStartOff = doc.offsetAt(sel.start);
-  const importText = willImport ? `import ${moduleName}${eol}` : '';
-  const edit = new vscode.WorkspaceEdit();
-  if (willImport) edit.insert(doc.uri, doc.positionAt(importInsertOffset(doc.getText())), importText);
-  edit.replace(doc.uri, sel, encodedText);
-  if (!(await vscode.workspace.applyEdit(edit))) {
-    vscode.window.showErrorMessage('Lean Shim: could not replace the selection.');
-    return;
-  }
-
-  // Select the new tactic call and reset any regeneration state.
-  const start = selStartOff + importText.length;
-  const range = new vscode.Range(doc.positionAt(start), doc.positionAt(start + encodedText.length));
-  editor.selection = new vscode.Selection(range.start, range.end);
-  editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
-  last = undefined;
-
-  logSection(`${new Date().toLocaleString()} — encoded selection — ${vscode.workspace.asRelativePath(doc.uri)}`);
-  log.appendLine(encodedText.replace(/\r\n/g, '\n'));
-  if (needImport && !autoImport) {
-    vscode.window.showWarningMessage(
-      `Lean Shim: selection encoded, but the file does not import \`${moduleName}\`. Add \`import ${moduleName}\` for \`from_base64\` to work.`,
-    );
-  } else {
-    vscode.window.setStatusBarMessage(
-      `Lean Shim: selection encoded as from_base64${willImport ? ` (added \`import ${moduleName}\`)` : ''}. Ctrl+Z to undo.`,
-      6000,
-    );
-  }
 }
 
 async function runSuggest(editor: vscode.TextEditor) {
@@ -659,13 +597,6 @@ async function runSuggest(editor: vscode.TextEditor) {
             target = enc.range;
             expectedVersion = doc.version;
             if (enc.note) note = note ? `${note}; ${enc.note}` : enc.note;
-          } else if (format === 'base64') {
-            const enc = await step('storing the proof as Base64 and re-checking it', () =>
-              storeAsBase64(doc, target, proof, linePrefix, eol, tabSize, baseline!, timeoutMs, cfg, progress, token),
-            );
-            target = enc.range;
-            expectedVersion = doc.version;
-            if (enc.note) note = note ? `${note}; ${enc.note}` : enc.note;
           }
           return;
         }
@@ -813,108 +744,6 @@ async function storeSingleLine(
     if (back) return { range: back, note: 'kept on several lines (the one-line form did not check)' };
   }
   return { range: findText(doc, plainText, startOff) ?? target, note: 'kept on several lines (the one-line form did not check)' };
-}
-
-/**
- * Replace a verified proof with a `from_base64 "..."` tactic call, adding the import if needed, then
- * re-check with Lean. On any problem (e.g. the module isn't built/imported) the plain, verified proof
- * is restored, so this never leaves a broken file.
- */
-async function storeAsBase64(
-  doc: vscode.TextDocument,
-  target: vscode.Range,
-  proof: string,
-  linePrefix: string,
-  eol: string,
-  tabSize: number,
-  baseline: Baseline,
-  timeoutMs: number,
-  cfg: vscode.WorkspaceConfiguration,
-  progress: vscode.Progress<{ message?: string }>,
-  token: vscode.CancellationToken,
-): Promise<{ range: vscode.Range; note?: string }> {
-  const moduleName = (cfg.get<string>('base64Module', 'LeanShim.Base64') || 'LeanShim.Base64').trim();
-  const autoImport = cfg.get<boolean>('base64AutoImport', true);
-  const plainText = doc.getText(target);
-  const needImport = !hasImport(doc.getText(), moduleName);
-  if (needImport && !autoImport) {
-    return { range: target, note: `kept as plain text (the file does not import \`${moduleName}\`)` };
-  }
-  if (token.isCancellationRequested) return { range: target };
-  progress.report({ message: 'storing the proof as Base64…' });
-
-  // Capture offsets BEFORE editing: Position objects do not track edits, so once a line is inserted
-  // above the proof, a stale Position no longer points at the proof. Offsets do shift predictably.
-  const encodedText = layoutInsertion(tacticCall(proof), linePrefix, eol, tabSize);
-  const importText = needImport ? `import ${moduleName}${eol}` : '';
-  const importOffset = needImport ? importInsertOffset(doc.getText()) : 0; // always above the proof
-  const proofStartOff = doc.offsetAt(target.start);
-
-  // Apply the import insert (if any) and the proof→tactic-call replacement as ONE atomic edit, so
-  // both resolve against the current coordinates and I don't have to track intermediate positions.
-  const edit = new vscode.WorkspaceEdit();
-  if (needImport) edit.insert(doc.uri, doc.positionAt(importOffset), importText);
-  edit.replace(doc.uri, target, encodedText);
-  if (!(await vscode.workspace.applyEdit(edit))) {
-    return { range: target, note: 'kept as plain text (could not write the encoded proof)' };
-  }
-  const encStart = proofStartOff + importText.length; // the import (if added) sits entirely above
-  target = new vscode.Range(doc.positionAt(encStart), doc.positionAt(encStart + encodedText.length));
-  logSection('ENCODED AS BASE64');
-  log.appendLine(encodedText.replace(/\r\n/g, '\n'));
-
-  // Guard against any position miscalculation before trusting the result.
-  if (doc.getText(target) !== encodedText) {
-    logSection('BASE64 PLACEMENT CHECK FAILED — RESTORED THE PLAIN PROOF');
-    await undoBase64(doc, moduleName, importText, encodedText, plainText);
-    return { range: findText(doc, plainText, proofStartOff) ?? target, note: 'kept as plain text (could not place the encoded proof safely)' };
-  }
-
-  // Re-verify the encoded form.
-  const w = await waitForLean(doc, timeoutMs, token);
-  const verdict =
-    w === 'done' && !doc.isClosed && doc.getText(target) === encodedText
-      ? judge(currentDiags(doc), declarationRegion(doc, target), span(target), baseline)
-      : undefined;
-  if (verdict?.ok) {
-    return { range: target, note: needImport ? `stored as Base64 (added \`import ${moduleName}\`)` : 'stored as Base64' };
-  }
-
-  // Something went wrong: restore the plain, verified proof and remove any import we added.
-  logSection('BASE64 RE-CHECK FAILED — RESTORED THE PLAIN PROOF');
-  if (verdict) log.appendLine(verdict.problems.map((d) => describe(d, doc.lineAt(d.range.start.line).text)).join('\n'));
-  else log.appendLine(`Lean did not confirm the encoded proof (${w}).`);
-  const restored = await undoBase64(doc, moduleName, importText, encodedText, plainText);
-  const reason = w === 'done' ? 'the encoded proof did not check' : `Lean did not finish checking it (${w})`;
-  return {
-    range: restored ?? findText(doc, plainText, proofStartOff) ?? target,
-    note: `kept as plain text (${reason}; is \`${moduleName}\` built and imported?)`,
-  };
-}
-
-/** Undo encoding: turn the tactic call back into the plain proof and drop the import we added. */
-async function undoBase64(
-  doc: vscode.TextDocument,
-  moduleName: string,
-  importText: string,
-  encodedText: string,
-  plainText: string,
-): Promise<vscode.Range | undefined> {
-  const encAt = doc.getText().indexOf(encodedText);
-  if (encAt < 0) return undefined; // the document moved on; leave it as is
-  const edit = new vscode.WorkspaceEdit();
-  edit.replace(doc.uri, new vscode.Range(doc.positionAt(encAt), doc.positionAt(encAt + encodedText.length)), plainText);
-  let shift = 0;
-  if (importText) {
-    const impAt = doc.getText().indexOf(importText);
-    if (impAt >= 0 && impAt < encAt && hasImport(doc.getText(), moduleName)) {
-      edit.delete(doc.uri, new vscode.Range(doc.positionAt(impAt), doc.positionAt(impAt + importText.length)));
-      shift = importText.length;
-    }
-  }
-  if (!(await vscode.workspace.applyEdit(edit))) return undefined;
-  const start = encAt - shift;
-  return new vscode.Range(doc.positionAt(start), doc.positionAt(start + plainText.length));
 }
 
 /** Range of `text` in the document nearest `nearOff`, or undefined if absent. */

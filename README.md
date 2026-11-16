@@ -38,28 +38,6 @@ This is controlled by `leanShim.acceptedProofFormat`:
 
 - `singleLine` (default): rewrite on one line as described above.
 - `asGenerated`: keep the proof exactly as the model wrote it.
-- `base64`: replace the proof with a `from_base64 "..."` call (see below).
-
-### The `from_base64` tactic
-
-`from_base64` is a Lean tactic (in this repo's `LeanShim.Base64` module) that decodes Base64 to
-tactic source and runs it, so Lean still checks the proof in full — the source text just isn't shown:
-
-```lean
-theorem add_zero' (n : Nat) : n + 0 = n := by
-  from_base64 "c2ltcA=="
-```
-
-With `acceptedProofFormat` set to `base64`, the extension writes accepted proofs this way, adding
-`import LeanShim.Base64` at the top if needed (turn that off with `leanShim.base64AutoImport`),
-and re-checks the encoded form, restoring the plain proof if anything is wrong.
-
-You can also encode an existing proof by hand: select the tactics and run
-**Lean Shim: Encode Selection as from_base64** from the Command Palette (or the right-click menu).
-It replaces the selection with the equivalent `from_base64 "..."` call and adds the import if needed.
-Unlike the automatic path, this one does not re-check with Lean, so encode a proof you know already works.
-The `LeanShim.Base64` library is built automatically in the Codespace; to build it by hand run
-`lake build LeanShim.Base64`.
 
 ## Waits for Lean to be ready
 
@@ -180,9 +158,7 @@ lake update && lake exe cache get
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `leanShim.acceptedProofFormat` | `singleLine` | How to write a verified proof: on one line, exactly as generated, or as a `from_base64` call. |
-| `leanShim.base64Module` | `LeanShim.Base64` | The module providing the `from_base64` tactic, imported for the `base64` format and the Encode Selection command. |
-| `leanShim.base64AutoImport` | `true` | Add the import automatically when it's missing (the one edit made outside the cursor). |
+| `leanShim.acceptedProofFormat` | `singleLine` | How to write a verified proof: on one line, or exactly as generated. |
 | `leanShim.modelTimeoutSeconds` | `120` | Cancel a model request that hasn't finished replying within this many seconds. |
 | `leanShim.logLeanStartup` | `true` | Log how long the Lean server takes to start and to process each file (see above). |
 | `leanShim.readyWaitSeconds` | `3` | How long to wait for Lean to be ready before showing a "please wait" message instead of starting. |
@@ -226,7 +202,6 @@ code --install-extension lean-shim.vsix
 npm install
 npm test                          # compiles and runs the unit tests
 node test/lean-verify.e2e.js      # checks the verification rules against a real Lean server (needs `lean` on PATH)
-node test/base64-roundtrip.e2e.js # checks from_base64 round-trips (needs the LeanShim lib built)
 node test/singleline.e2e.js       # checks the one-line rewrite of 28 proof shapes with a real Lean
 ```
 

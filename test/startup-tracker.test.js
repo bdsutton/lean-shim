@@ -3,7 +3,7 @@ const { StartupTracker, lastImportLine, describeLeanActivity } = require('../out
 
 // lastImportLine
 assert.strictEqual(lastImportLine('-- c\nimport Lean\n\nopen Lean\n'), 1);
-assert.strictEqual(lastImportLine('/- doc\n   more -/\nimport Mathlib\nimport LeanShim.Base64\ntheorem t := 1'), 3);
+assert.strictEqual(lastImportLine('/- doc\n   more -/\nimport Mathlib\nimport Mathlib.Tactic\ntheorem t := 1'), 3);
 assert.strictEqual(lastImportLine('module\n\npublic import Lean\n\ndef x := 1'), 2);
 assert.strictEqual(lastImportLine('theorem t : True := trivial'), -1);
 

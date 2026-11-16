@@ -1,11 +1,7 @@
 # Lean project so files in this repo (e.g. examples/) can `import Mathlib`.
-# It also builds the LeanShim library, which provides the `from_base64` tactic.
 name = "LeanShim"
 
 [[require]]
 name = "mathlib"
 git = "https://github.com/leanprover-community/mathlib4"
 rev = "v4.35.0"
-
-[[lean_lib]]
-name = "LeanShim"

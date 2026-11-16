@@ -11,4 +11,3 @@ examples/**
 lakefile.toml
 lake-manifest.json
 lean-toolchain
-LeanShim/**
