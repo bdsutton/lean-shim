@@ -10,6 +10,6 @@ done
 # Fetch Mathlib and download its prebuilt files (building it from source would take hours)
 lake exe cache get
 # Build the from_base64 tactic library (used by leanProofFill.encodeAcceptedProof; no Mathlib needed)
-lake build SorryClaude.Base64
+lake build LeanShim.Base64
 # Dependencies for building the extension
 npm ci

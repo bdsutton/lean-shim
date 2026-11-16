@@ -42,7 +42,7 @@ This is controlled by `leanProofFill.acceptedProofFormat`:
 
 ### The `from_base64` tactic
 
-`from_base64` is a Lean tactic (in this repo's `SorryClaude.Base64` module) that decodes Base64 to
+`from_base64` is a Lean tactic (in this repo's `LeanShim.Base64` module) that decodes Base64 to
 tactic source and runs it, so Lean still checks the proof in full — the source text just isn't shown:
 
 ```lean
@@ -51,15 +51,15 @@ theorem add_zero' (n : Nat) : n + 0 = n := by
 ```
 
 With `acceptedProofFormat` set to `base64`, the extension writes accepted proofs this way, adding
-`import SorryClaude.Base64` at the top if needed (turn that off with `leanProofFill.base64AutoImport`),
+`import LeanShim.Base64` at the top if needed (turn that off with `leanProofFill.base64AutoImport`),
 and re-checks the encoded form, restoring the plain proof if anything is wrong.
 
 You can also encode an existing proof by hand: select the tactics and run
 **Lean Proof Fill: Encode Selection as from_base64** from the Command Palette (or the right-click menu).
 It replaces the selection with the equivalent `from_base64 "..."` call and adds the import if needed.
 Unlike the automatic path, this one does not re-check with Lean, so encode a proof you know already works.
-The `SorryClaude.Base64` library is built automatically in the Codespace; to build it by hand run
-`lake build SorryClaude.Base64`.
+The `LeanShim.Base64` library is built automatically in the Codespace; to build it by hand run
+`lake build LeanShim.Base64`.
 
 ## Checked by Lean before it's accepted
 
@@ -134,7 +134,7 @@ lake update && lake exe cache get
 |---|---|---|
 | `leanProofFill.modelFamily` | `""` | Copilot model family, e.g. `gpt-4o` or `claude-sonnet-4`. Leave empty for the first available model. Use **Lean Proof Fill: Select Copilot Model** to pick from a list. |
 | `leanProofFill.acceptedProofFormat` | `singleLine` | How to write a verified proof: on one line, exactly as generated, or as a `from_base64` call. |
-| `leanProofFill.base64Module` | `SorryClaude.Base64` | The module providing the `from_base64` tactic, imported for the `base64` format and the Encode Selection command. |
+| `leanProofFill.base64Module` | `LeanShim.Base64` | The module providing the `from_base64` tactic, imported for the `base64` format and the Encode Selection command. |
 | `leanProofFill.base64AutoImport` | `true` | Add the import automatically when it's missing (the one edit made outside the cursor). |
 | `leanProofFill.modelTimeoutSeconds` | `120` | Cancel a model request that hasn't finished replying within this many seconds. |
 | `leanProofFill.verify` | `true` | Check each suggestion with Lean, retry automatically, and leave the file unchanged if nothing passes. |
@@ -172,7 +172,7 @@ code --install-extension lean-proof-fill.vsix
 npm install
 npm test                          # compiles and runs the unit tests
 node test/lean-verify.e2e.js      # checks the verification rules against a real Lean server (needs `lean` on PATH)
-node test/base64-roundtrip.e2e.js # checks from_base64 round-trips (needs the SorryClaude lib built)
+node test/base64-roundtrip.e2e.js # checks from_base64 round-trips (needs the LeanShim lib built)
 node test/singleline.e2e.js       # checks the one-line rewrite of 28 proof shapes with a real Lean
 ```
 

@@ -8,7 +8,7 @@ is still fully checked by Lean, exactly as if the tactics were written out.
 import Lean
 open Lean Elab Tactic
 
-namespace SorryClaude.Base64
+namespace LeanShim.Base64
 
 /-- Value of a standard Base64 alphabet character; `none` for padding/invalid characters. -/
 private def dval (c : Char) : Option Nat :=
@@ -65,4 +65,4 @@ elab "from_base64 " s:str : tactic => do
     | .error e => throwError "from_base64: could not parse the decoded tactics:\n{e}"
     | .ok stx => evalTactic stx
 
-end SorryClaude.Base64
+end LeanShim.Base64

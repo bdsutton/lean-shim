@@ -1,6 +1,6 @@
 // Confirms the extension's `tacticCall(...)` output runs through the real `from_base64` tactic.
 // Usage: npm run compile && node test/base64-roundtrip.e2e.js [path/to/lean]
-// Needs the SorryClaude library built (`lake build SorryClaude.Base64`) and `lean` on PATH.
+// Needs the LeanShim library built (`lake build LeanShim.Base64`) and `lean` on PATH.
 // Runs `lean` directly with LEAN_PATH (no Mathlib needed), so it works without network access.
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -18,7 +18,7 @@ const cases = [
   ['indented', 'n + 0 = n', '(n : Nat)', '    simp\n'],
   ['block', '(0:Nat) ≤ 1 ∧ (0:Nat) ≤ 2', '', '      have h1 : (0:Nat) ≤ 1 := Nat.zero_le _\n      have h2 : (0:Nat) ≤ 2 := Nat.zero_le _\n      exact ⟨h1, h2⟩'],  // reconstructed ragged selection
 ];
-let out = 'import SorryClaude.Base64\n\n';
+let out = 'import LeanShim.Base64\n\n';
 for (const [name, ty, binders, proof] of cases) {
   out += `theorem rt_${name} ${binders} : ${ty} := by\n  ${tacticCall(proof)}\n\n`;
 }
@@ -26,8 +26,8 @@ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'b64rt-'));
 const file = path.join('examples', `_roundtrip_tmp.lean`);
 fs.writeFileSync(file, out);
 const libDir = path.resolve('.lake/build/lib/lean');
-if (!fs.existsSync(path.join(libDir, 'SorryClaude', 'Base64.olean'))) {
-  console.error('SorryClaude library not built; run: lake build SorryClaude.Base64');
+if (!fs.existsSync(path.join(libDir, 'LeanShim', 'Base64.olean'))) {
+  console.error('LeanShim library not built; run: lake build LeanShim.Base64');
   process.exit(2);
 }
 try {

@@ -15,11 +15,11 @@ const m = /^from_base64 "(.+)"$/.exec(call);
 assert.strictEqual(Buffer.from(m[1], 'base64').toString('utf8'), 'intro h\nexact h');
 
 // hasImport
-assert(hasImport('import Mathlib\nimport SorryClaude.Base64\n\ntheorem t', 'SorryClaude.Base64'));
-assert(hasImport('  import SorryClaude.Base64 -- the tactic', 'SorryClaude.Base64'));
-assert(!hasImport('import SorryClaude.Base64Extra', 'SorryClaude.Base64'));
-assert(!hasImport('-- import SorryClaude.Base64', 'SorryClaude.Base64'));
-assert(!hasImport('import Mathlib\n', 'SorryClaude.Base64'));
+assert(hasImport('import Mathlib\nimport LeanShim.Base64\n\ntheorem t', 'LeanShim.Base64'));
+assert(hasImport('  import LeanShim.Base64 -- the tactic', 'LeanShim.Base64'));
+assert(!hasImport('import LeanShim.Base64Extra', 'LeanShim.Base64'));
+assert(!hasImport('-- import LeanShim.Base64', 'LeanShim.Base64'));
+assert(!hasImport('import Mathlib\n', 'LeanShim.Base64'));
 
 // importInsertOffset: after the last import; at 0 when none
 const f1 = 'import Mathlib\nimport Foo\n\ntheorem t : True := trivial\n';

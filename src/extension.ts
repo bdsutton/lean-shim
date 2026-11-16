@@ -348,7 +348,7 @@ async function encodeSelection(editor: vscode.TextEditor) {
     return;
   }
   const cfg = vscode.workspace.getConfiguration('leanProofFill');
-  const moduleName = (cfg.get<string>('base64Module', 'SorryClaude.Base64') || 'SorryClaude.Base64').trim();
+  const moduleName = (cfg.get<string>('base64Module', 'LeanShim.Base64') || 'LeanShim.Base64').trim();
   const autoImport = cfg.get<boolean>('base64AutoImport', true);
   const eol = doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
   const tabSize = typeof editor.options.tabSize === 'number' ? editor.options.tabSize : 2;
@@ -821,7 +821,7 @@ async function storeAsBase64(
   progress: vscode.Progress<{ message?: string }>,
   token: vscode.CancellationToken,
 ): Promise<{ range: vscode.Range; note?: string }> {
-  const moduleName = (cfg.get<string>('base64Module', 'SorryClaude.Base64') || 'SorryClaude.Base64').trim();
+  const moduleName = (cfg.get<string>('base64Module', 'LeanShim.Base64') || 'LeanShim.Base64').trim();
   const autoImport = cfg.get<boolean>('base64AutoImport', true);
   const plainText = doc.getText(target);
   const needImport = !hasImport(doc.getText(), moduleName);

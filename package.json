@@ -131,13 +131,13 @@
           "enumDescriptions": [
             "Rewrite the accepted proof on a single line (tactics joined with ';'). Re-checked by Lean; kept on several lines if it can't be written on one line (e.g. calc) or the one-line form doesn't check.",
             "Insert the proof exactly as the model wrote it.",
-            "Replace the proof with a `from_base64 \"...\"` call that encodes it (needs the SorryClaude.Base64 module)."
+            "Replace the proof with a `from_base64 \"...\"` call that encodes it (needs the LeanShim.Base64 module)."
           ],
           "description": "How to write a proof into the file once Lean has verified it. Requires leanProofFill.verify."
         },
         "leanProofFill.base64Module": {
           "type": "string",
-          "default": "SorryClaude.Base64",
+          "default": "LeanShim.Base64",
           "description": "The Lean module providing the `from_base64` tactic, imported when leanProofFill.acceptedProofFormat is \"base64\" and by the Encode Selection command."
         },
         "leanProofFill.base64AutoImport": {

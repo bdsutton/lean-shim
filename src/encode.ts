@@ -1,7 +1,7 @@
 // Pure helpers for storing an accepted proof as a `from_base64 "..."` call (no `vscode` import).
 import { dedent } from './format';
 
-/** Base64-encode proof text (UTF-8), matching Lean's `SorryClaude.Base64.decode`. */
+/** Base64-encode proof text (UTF-8), matching Lean's `LeanShim.Base64.decode`. */
 export function toBase64(text: string): string {
   return Buffer.from(text, 'utf8').toString('base64');
 }
