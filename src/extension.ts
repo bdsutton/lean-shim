@@ -49,7 +49,6 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('leanProofFill.showStartupTimeline', () => log.show(true)),
     vscode.commands.registerTextEditorCommand('leanProofFill.suggest', (editor) => suggest(editor)),
     vscode.commands.registerTextEditorCommand('leanProofFill.encodeSelection', (editor) => encodeSelection(editor)),
-    vscode.commands.registerCommand('leanProofFill.selectModel', selectModel),
     vscode.window.onDidChangeActiveTextEditor(updateStatusVisibility),
   );
 }
@@ -70,19 +69,19 @@ function updateStatusVisibility(editor: vscode.TextEditor | undefined) {
 // Model selection
 // ---------------------------------------------------------------------------
 
+/** Is this Copilot's "Auto" model (Copilot picks the underlying model for each request)? */
+function isAutoModel(m: vscode.LanguageModelChat): boolean {
+  return [m.id, m.family, m.name].some((v) => typeof v === 'string' && v.trim().toLowerCase() === 'auto');
+}
+
+/** Lean Proof Fill always uses Copilot's Auto model. */
 async function getModel(): Promise<vscode.LanguageModelChat | undefined> {
-  const family = vscode.workspace.getConfiguration('leanProofFill').get<string>('modelFamily', '').trim();
-  let models = await vscode.lm.selectChatModels(family ? { vendor: 'copilot', family } : { vendor: 'copilot' });
-  if (!models.length && family) {
-    models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-    if (models.length) {
-      vscode.window.showWarningMessage(
-        `Lean Proof Fill: Copilot model family "${family}" not available; using ${models[0].name} instead.`,
-      );
-    }
-  }
+  const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
+  const auto = models.find(isAutoModel);
+  if (auto) return auto;
+
+  // Not awaited: an unanswered notification must not keep the command running.
   if (!models.length) {
-    // Not awaited: an unanswered notification must not keep the command running.
     void vscode.window
       .showErrorMessage(
         'Lean Proof Fill: no GitHub Copilot language model is available. Make sure the GitHub Copilot Chat extension is installed and you are signed in.',
@@ -91,9 +90,18 @@ async function getModel(): Promise<vscode.LanguageModelChat | undefined> {
       .then((choice) => {
         if (choice) void vscode.commands.executeCommand('workbench.extensions.installExtension', 'github.copilot-chat');
       });
-    return undefined;
+  } else {
+    try {
+      await logAvailableModels('Copilot\'s Auto model was not among the models VS Code offers to extensions.');
+    } catch (e) {
+      log.appendLine(`Could not list models: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    void vscode.window.showErrorMessage(
+      "Lean Proof Fill: Copilot's Auto model isn't available to extensions right now, so no request was sent. " +
+        'The models VS Code does offer are listed in the Lean Proof Fill output panel.',
+    );
   }
-  return models[0];
+  return undefined;
 }
 
 /** Every readable, non-function property of a model object (own and inherited getters). */
@@ -126,51 +134,21 @@ function formatValue(v: unknown): string {
 }
 
 /** Write full information about all available language models to the output panel. */
-async function logAvailableModels(): Promise<void> {
+async function logAvailableModels(reason: string): Promise<void> {
   const all = await vscode.lm.selectChatModels();
-  const current = vscode.workspace.getConfiguration('leanProofFill').get<string>('modelFamily', '');
   logSection(`${new Date().toLocaleString()} — AVAILABLE LANGUAGE MODELS (${all.length})`, '=');
-  log.appendLine(`Current leanProofFill.modelFamily: ${current ? `"${current}"` : '(empty: first available Copilot model)'}`);
-  log.appendLine('The picker offers models whose vendor is "copilot".');
+  log.appendLine(reason);
+  log.appendLine('Lean Proof Fill only uses Copilot\'s Auto model (vendor "copilot", id/family/name "auto").');
   const known = ['name', 'id', 'vendor', 'family', 'version', 'maxInputTokens'];
   all.forEach((m, i) => {
-    logSection(`${i + 1}. ${m.name}${m.vendor === 'copilot' ? '' : ' (not offered: vendor is not copilot)'}`);
+    logSection(`${i + 1}. ${m.name}`);
     const props = new Map(modelProperties(m));
     for (const k of known) log.appendLine(`  ${k.padEnd(16)} ${formatValue(props.has(k) ? props.get(k) : (m as unknown as Record<string, unknown>)[k])}`);
     for (const [k, v] of props) if (!known.includes(k)) log.appendLine(`  ${k.padEnd(16)} ${formatValue(v)}`);
   });
   if (!all.length) log.appendLine('No language models are available. Is GitHub Copilot Chat installed and signed in?');
   log.appendLine('');
-  log.show(true); // reveal the panel without taking focus from the picker
-}
-
-async function selectModel() {
-  try {
-    await logAvailableModels();
-  } catch (e) {
-    log.appendLine(`Could not list models: ${e instanceof Error ? e.message : String(e)}`);
-  }
-  const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-  if (!models.length) {
-    vscode.window.showErrorMessage('Lean Proof Fill: no Copilot models available. Is GitHub Copilot Chat installed and signed in?');
-    return;
-  }
-  const current = vscode.workspace.getConfiguration('leanProofFill').get<string>('modelFamily', '');
-  const seen = new Set<string>();
-  const items: (vscode.QuickPickItem & { family: string })[] = [
-    { label: 'Default', description: 'first available Copilot model', family: '', picked: !current },
-  ];
-  for (const m of models) {
-    if (seen.has(m.family)) continue;
-    seen.add(m.family);
-    items.push({ label: m.name, description: m.family, family: m.family, picked: m.family === current });
-  }
-  const pick = await vscode.window.showQuickPick(items, { placeHolder: 'Copilot model used for Lean proof suggestions' });
-  if (!pick) return;
-  await vscode.workspace
-    .getConfiguration('leanProofFill')
-    .update('modelFamily', pick.family, vscode.ConfigurationTarget.Global);
-  vscode.window.showInformationMessage(`Lean Proof Fill will use ${pick.label}.`);
+  log.show(true); // reveal the panel without taking focus
 }
 
 // ---------------------------------------------------------------------------

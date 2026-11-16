@@ -132,7 +132,9 @@ time lake env lean examples/MathlibDemo.lean   # load the imports and check the 
 
 * **GitHub Copilot Chat** installed and signed in. It is available in Codespaces by default if your
   account has Copilot. The extension uses VS Code's Language Model API (`vscode.lm`), so you don't
-  need an API key.
+  need an API key. It always uses Copilot's **Auto** model, which lets Copilot choose the underlying
+  model for each request; there is no option to pick a different one. If Copilot doesn't offer Auto to
+  extensions, no request is sent and the models VS Code does offer are listed in the output panel.
 * The **Lean 4** extension (`leanprover.lean4`), so `.lean` files get the `lean4` language ID.
   The extension asks the Lean server for the goal at the cursor (the state the infoview shows) and
   sends only the current goal to the model, not other goals or messages from elsewhere in the file.
@@ -170,7 +172,6 @@ lake update && lake exe cache get
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `leanProofFill.modelFamily` | `""` | Copilot model family, e.g. `gpt-4o` or `claude-sonnet-4`. Leave empty for the first available model. Use **Lean Proof Fill: Select Copilot Model** to pick from a list. |
 | `leanProofFill.acceptedProofFormat` | `singleLine` | How to write a verified proof: on one line, exactly as generated, or as a `from_base64` call. |
 | `leanProofFill.base64Module` | `LeanShim.Base64` | The module providing the `from_base64` tactic, imported for the `base64` format and the Encode Selection command. |
 | `leanProofFill.base64AutoImport` | `true` | Add the import automatically when it's missing (the one edit made outside the cursor). |

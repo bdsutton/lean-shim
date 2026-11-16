@@ -39,7 +39,17 @@ class WorkspaceEdit {
   delete(_u, r) { this.ops.push([r, '']); }
 }
 
-let doc, editor, modelReplies, diagsFor, warnings, cmd;
+let doc, editor, modelReplies, diagsFor, warnings, cmd, requestsSent = 0;
+const fakeModel = (name, id, family) => ({
+  name, id, vendor: 'copilot', family, version: '1', maxInputTokens: 1000,
+  sendRequest: async () => {
+    requestsSent++;
+    const r = modelReplies.shift() ?? 'exact bad';
+    return { stream: (async function* () { yield { value: r }; })() };
+  },
+});
+// Copilot offers several models; Lean Proof Fill must always pick Auto.
+let offeredModels = [fakeModel('GPT Fake', 'gpt-fake', 'gpt-fake'), fakeModel('Auto', 'auto', 'auto')];
 const leanClient = {
   isRunning: () => true,
   sendRequest: async (method) => (method === '$/lean/plainGoal' ? { goals: ['n : Nat\n⊢ n + 0 = n'] } : {}),
@@ -52,10 +62,7 @@ const vscode = {
   LanguageModelChatMessage: { User: (t) => ({ content: t }) }, LanguageModelError: class extends Error {},
   extensions: { getExtension: () => ({ isActive: true, exports: { lean4EnabledFeatures: Promise.resolve({ clientProvider: { getActiveClient: () => leanClient } }) } }) },
   languages: { getDiagnostics: () => diagsFor(doc.text) },
-  lm: { selectChatModels: async () => [{
-    name: 'Fake', id: 'fake', vendor: 'copilot', family: 'fake', version: '1', maxInputTokens: 1000,
-    sendRequest: async () => { const r = modelReplies.shift() ?? 'exact bad'; return { stream: (async function* () { yield { value: r }; })() }; },
-  }] },
+  lm: { selectChatModels: async () => offeredModels },
   workspace: {
     getConfiguration: () => ({ get: (k, d) => d }),
     asRelativePath: () => 'T.lean',
@@ -142,6 +149,25 @@ const within = (p, ms) => Promise.race([p.then(() => 'finished'), new Promise((r
       : [{ severity: 0, message: 'boom', range: new Range(new Position(1, 2), new Position(1, 5)) }];
   assert.strictEqual(await within(cmd(editor), 5000), 'finished');
   assert.strictEqual(doc.text, 'theorem t (n : Nat) : n + 0 = n := by\n  have h : 0 + n = n := by\n    simp\n  exact h\n\ntheorem u : True := trivial\n');
+
+  // 6. Auto is always the model used
+  {
+    let used;
+    offeredModels = [fakeModel('GPT Fake', 'gpt-fake', 'gpt-fake'), fakeModel('Auto', 'auto', 'auto')];
+    offeredModels.forEach((m) => { const send = m.sendRequest; m.sendRequest = (...a) => { used = m.name; return send(...a); }; });
+    setup(['```lean\nsimp\n```']);
+    assert.strictEqual(await within(cmd(editor), 5000), 'finished');
+    assert.strictEqual(used, 'Auto');
+  }
+
+  // 7. Copilot doesn't offer Auto: no request is sent, the file is untouched, the user is told
+  offeredModels = [fakeModel('GPT Fake', 'gpt-fake', 'gpt-fake')];
+  setup(['```lean\nsimp\n```']);
+  requestsSent = 0;
+  assert.strictEqual(await within(cmd(editor), 5000), 'finished');
+  assert.strictEqual(requestsSent, 0);
+  assert.strictEqual(doc.text, FILE);
+  assert(warnings.some((w) => /Auto model isn't available/.test(w)));
 
   console.log('flow tests passed');
   process.exit(0);

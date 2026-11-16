@@ -39,11 +39,6 @@
         "icon": "$(lock)"
       },
       {
-        "command": "leanProofFill.selectModel",
-        "title": "Select Copilot Model",
-        "category": "Lean Proof Fill"
-      },
-      {
         "command": "leanProofFill.showLog",
         "title": "Show Prompt and Response Log",
         "category": "Lean Proof Fill",
@@ -97,11 +92,6 @@
     "configuration": {
       "title": "Lean Proof Fill",
       "properties": {
-        "leanProofFill.modelFamily": {
-          "type": "string",
-          "default": "",
-          "description": "Copilot model family to use (e.g. \"gpt-4o\", \"claude-sonnet-4\"). Leave empty to use the first available Copilot model. Use the 'Lean Proof Fill: Select Copilot Model' command to pick from a list."
-        },
         "leanProofFill.modelTimeoutSeconds": {
           "type": "number",
           "default": 120,
