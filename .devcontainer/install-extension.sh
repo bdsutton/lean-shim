@@ -9,6 +9,7 @@
 # Change detection uses fingerprints (SHA-256) of the inputs:
 #   - dependencies: package-lock.json            -> node_modules/.cache/lean-proof-fill/lock.sha256
 #   - package:      everything that goes into it -> node_modules/.cache/lean-proof-fill/vsix.sha256
+#     (src, package.json, package-lock.json, tsconfig.json, .vscodeignore, README.md, LICENSE)
 #   - install:      the package that was installed -> ~/.cache/lean-proof-fill/installed.sha256
 # The install stamp lives in $HOME, next to the installed extensions, so both disappear together when
 # the container is rebuilt.
@@ -25,8 +26,11 @@ EXT_ID=local.lean-proof-fill
 BUILD_STAMPS=node_modules/.cache/lean-proof-fill
 INSTALL_STAMP="$HOME/.cache/lean-proof-fill/installed.sha256"
 
-fingerprint() { # fingerprint of the given files/directories (names and contents)
-  find "$@" -type f 2>/dev/null | LC_ALL=C sort | xargs -r sha256sum | sha256sum | cut -d' ' -f1
+fingerprint() { # fingerprint of the given files/directories (names and contents); missing paths are skipped
+  local paths=() p
+  for p in "$@"; do [ -e "$p" ] && paths+=("$p"); done
+  if [ ${#paths[@]} -eq 0 ]; then echo none; return; fi
+  find "${paths[@]}" -type f -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1
 }
 stamp_matches() { [ -f "$1" ] && [ "$(cat "$1")" = "$2" ]; }
 
@@ -41,7 +45,7 @@ if [ "$FORCE" = 1 ] || [ ! -d node_modules ] || ! stamp_matches "$BUILD_STAMPS/l
 fi
 
 # 2. Package: rebuild only when an input changed or the .vsix is missing.
-VSIX_HASH=$(fingerprint src package.json package-lock.json tsconfig.json .vscodeignore README.md LICENSE media)
+VSIX_HASH=$(fingerprint src package.json package-lock.json tsconfig.json .vscodeignore README.md LICENSE)
 if [ "$FORCE" = 1 ] || [ ! -f "$VSIX" ] || ! stamp_matches "$BUILD_STAMPS/vsix.sha256" "$VSIX_HASH"; then
   echo "Lean Proof Fill: building the extension…"
   npm run package
