@@ -145,7 +145,7 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
+    "compile": "node -e \"require('fs').rmSync('out',{recursive:true,force:true})\" && tsc -p ./",
     "watch": "tsc -watch -p ./",
     "package": "vsce package --allow-missing-repository --skip-license -o lean-shim.vsix",
     "vscode:prepublish": "npm run compile",
