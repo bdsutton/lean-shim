@@ -50,9 +50,13 @@ const fakeModel = (name, id, family) => ({
 });
 // Copilot offers several models; Lean Proof Fill must always pick Auto.
 let offeredModels = [fakeModel('GPT Fake', 'gpt-fake', 'gpt-fake'), fakeModel('Auto', 'auto', 'auto')];
+let leanBusy = false; // when true, Lean never finishes checking the file
 const leanClient = {
   isRunning: () => true,
-  sendRequest: async (method) => (method === '$/lean/plainGoal' ? { goals: ['n : Nat\n⊢ n + 0 = n'] } : {}),
+  sendRequest: async (method) => {
+    if (method === 'textDocument/waitForDiagnostics' && leanBusy) return new Promise(() => {});
+    return method === '$/lean/plainGoal' ? { goals: ['n : Nat\n⊢ n + 0 = n'] } : {};
+  },
 };
 const vscode = {
   Position, Range, Selection, CancellationTokenSource, WorkspaceEdit,
@@ -168,6 +172,19 @@ const within = (p, ms) => Promise.race([p.then(() => 'finished'), new Promise((r
   assert.strictEqual(requestsSent, 0);
   assert.strictEqual(doc.text, FILE);
   assert(warnings.some((w) => /Auto model isn't available/.test(w)));
+
+  // 8. Lean still busy with the file: after the short wait, a message; nothing sent, file untouched
+  offeredModels = [fakeModel('Auto', 'auto', 'auto')];
+  setup(['```lean\nsimp\n```']);
+  requestsSent = 0;
+  leanBusy = true;
+  const t8 = Date.now();
+  assert.strictEqual(await within(cmd(editor), 8000), 'finished');
+  leanBusy = false;
+  assert(Date.now() - t8 < 6000, 'should give up after about readyWaitSeconds (3 s)');
+  assert.strictEqual(requestsSent, 0);
+  assert.strictEqual(doc.text, FILE);
+  assert(warnings.some((w) => /Lean isn't ready yet/.test(w)), 'should ask the user to wait');
 
   console.log('flow tests passed');
   process.exit(0);

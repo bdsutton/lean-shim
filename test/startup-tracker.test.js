@@ -1,5 +1,5 @@
 const assert = require('node:assert');
-const { StartupTracker, lastImportLine } = require('../out/startup-tracker');
+const { StartupTracker, lastImportLine, describeLeanActivity } = require('../out/startup-tracker');
 
 // lastImportLine
 assert.strictEqual(lastImportLine('-- c\nimport Lean\n\nopen Lean\n'), 1);
@@ -64,5 +64,15 @@ const text = '-- header comment\nimport Lean\n\nopen Lean\n\ntheorem a : 1 = 1 :
   at(200); tr.serverStarting(); at(300); tr.serverReady();
   at(400); tr.progress('u', [R(0, 10)]); at(900); tr.progress('u', []);
   assert.strictEqual(lines.filter((l) => /finished/.test(l)).length, 2);
+}
+// describeLeanActivity
+{
+  const R2 = (a, b, kind = 1) => ({ range: { start: { line: a }, end: { line: b } }, kind });
+  const src = 'import Mathlib\n\ntheorem a : True := trivial\n\ntheorem b : True := trivial\n';
+  assert.match(describeLeanActivity([R2(0, 5)], src), /loading this file's imports/);
+  assert.match(describeLeanActivity([R2(4, 5)], src), /checking this file \(line 5 of 6\)/);
+  assert.match(describeLeanActivity([R2(2, 2, 2)], src), /stopped with an error at line 3/);
+  assert.match(describeLeanActivity(undefined, src), /still processing this file/);
+  assert.match(describeLeanActivity([R2(0, 2)], 'theorem a : True := trivial\n'), /loading this file's imports/); // no imports: Init
 }
 console.log('startup-tracker tests passed');

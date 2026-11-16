@@ -61,6 +61,14 @@ Unlike the automatic path, this one does not re-check with Lean, so encode a pro
 The `LeanShim.Base64` library is built automatically in the Codespace; to build it by hand run
 `lake build LeanShim.Base64`.
 
+## Waits for Lean to be ready
+
+Suggestions depend on Lean: it provides the goal at the cursor and checks the result. So when you ask
+for one, the extension first waits up to 3 seconds (`leanProofFill.readyWaitSeconds`) for Lean's server
+to be running and for the current file to be fully checked. If Lean isn't ready by then, nothing is
+sent to Copilot and a message says what Lean is still doing — starting up, loading the file's imports,
+or checking a particular line — so you can try again when it's done.
+
 ## Checked by Lean before it's accepted
 
 With `leanProofFill.verify` on (the default), each press works like this:
@@ -177,6 +185,7 @@ lake update && lake exe cache get
 | `leanProofFill.base64AutoImport` | `true` | Add the import automatically when it's missing (the one edit made outside the cursor). |
 | `leanProofFill.modelTimeoutSeconds` | `120` | Cancel a model request that hasn't finished replying within this many seconds. |
 | `leanProofFill.logLeanStartup` | `true` | Log how long the Lean server takes to start and to process each file (see above). |
+| `leanProofFill.readyWaitSeconds` | `3` | How long to wait for Lean to be ready before showing a "please wait" message instead of starting. |
 | `leanProofFill.verify` | `true` | Check each suggestion with Lean, retry automatically, and leave the file unchanged if nothing passes. |
 | `leanProofFill.maxAttempts` | `3` | Suggestions tried per press when verifying (1–10). |
 | `leanProofFill.verifyTimeoutSeconds` | `120` | How long to wait for Lean's check before inserting the suggestion as not verified. |

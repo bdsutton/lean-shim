@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { Baseline, describe, judge, makeBaseline, touches, usesSorry } from './check';
 import { hasImport, importInsertOffset, tacticCall } from './encode';
 import { toSingleLine } from './singleline';
+import { checkLeanReady, Readiness, trackLeanProgress } from './ready';
 import { watchLeanStartup } from './startup';
 import { buildPrompt, extractProof, layoutInsertion } from './format';
 import { goalAtCursor, GoalResult } from './goal';
@@ -41,6 +42,8 @@ export function activate(context: vscode.ExtensionContext) {
   if (vscode.workspace.getConfiguration('leanProofFill').get<boolean>('logLeanStartup', true)) {
     context.subscriptions.push(watchLeanStartup((line) => log.appendLine(line)));
   }
+
+  context.subscriptions.push(trackLeanProgress());
 
   context.subscriptions.push(
     statusItem,
@@ -382,6 +385,31 @@ async function encodeSelection(editor: vscode.TextEditor) {
 async function runSuggest(editor: vscode.TextEditor) {
   const doc = editor.document;
   const cfg = vscode.workspace.getConfiguration('leanProofFill');
+
+  // Don't start unless Lean is ready (server running, this file fully checked): otherwise the goal
+  // lookup and the check of the suggestion would sit waiting for Lean. Wait a few seconds at most.
+  const waitMs = Math.max(0, cfg.get<number>('readyWaitSeconds', 3)) * 1000;
+  statusItem.text = '$(loading~spin) Checking Lean…';
+  const probe = new vscode.CancellationTokenSource();
+  currentRun = probe; // so "Cancel it" works while waiting
+  let readiness: Readiness;
+  try {
+    readiness = await checkLeanReady(doc, waitMs, probe.token);
+  } finally {
+    if (currentRun === probe) currentRun = undefined;
+    probe.dispose();
+  }
+  if (!readiness.ready) {
+    if (!readiness.cancelled) {
+      log.appendLine(`[${new Date().toLocaleTimeString()}] Not started: Lean isn't ready (${readiness.reason}).`);
+      void vscode.window.showInformationMessage(
+        `Lean Proof Fill: Lean isn't ready yet — ${readiness.reason}. ` +
+          "Please wait until it's done (the orange bar beside the editor shows what Lean is still working on), then try again.",
+      );
+    }
+    return;
+  }
+
   const regenerate = isRegeneration(editor);
   const verify = cfg.get<boolean>('verify', true);
   const maxAttempts = verify ? Math.min(10, Math.max(1, Math.floor(cfg.get<number>('maxAttempts', 3)))) : 1;

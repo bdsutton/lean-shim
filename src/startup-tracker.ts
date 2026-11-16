@@ -200,3 +200,17 @@ export class StartupTracker {
     }
   }
 }
+
+/** What Lean is doing with a file, from its latest progress report (for a "please wait" message). */
+export function describeLeanActivity(infos: ProcessingInfo[] | undefined, text: string): string {
+  if (!infos) return 'Lean is still processing this file';
+  if (!infos.length) return 'Lean is just finishing this file';
+  const fatal = infos.find((i) => i.kind === 2);
+  if (fatal) return `Lean stopped with an error at line ${fatal.range.start.line + 1}`;
+  const frontier = Math.min(...infos.map((i) => i.range.start.line));
+  const header = lastImportLine(text);
+  const total = text.split('\n').length;
+  const loadingImports = header >= 0 ? frontier <= header : frontier === 0 && infos.length === 1;
+  if (loadingImports) return "Lean is still loading this file's imports (with Mathlib this can take a minute or more)";
+  return `Lean is still checking this file (line ${frontier + 1} of ${total})`;
+}
