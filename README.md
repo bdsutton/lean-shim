@@ -1,4 +1,4 @@
-# Lean Proof Fill (Copilot)
+# Lean Shim
 
 Fill in a missing piece of a Lean 4 proof with GitHub Copilot. Put the cursor where the proof
 should go and trigger the command. The suggested steps are inserted at the cursor, and **nothing else in
@@ -15,7 +15,7 @@ suggestions you rejected and which Lean errors they caused.
 | Editor title bar | ✨ (sparkle) button at the top right of a `.lean` file |
 | Status bar | **✨ Fill Proof** at the bottom right |
 | Keyboard | `Ctrl+Alt+L` (`Cmd+Alt+L` on macOS) |
-| Command Palette | **Lean Proof Fill: Suggest Proof Steps at Cursor** |
+| Command Palette | **Lean Shim: Suggest Proof Steps at Cursor** |
 | Right-click menu | **Suggest Proof Steps at Cursor** |
 
 `Ctrl+Z` undoes a suggestion. To stop a request in progress, press the button (or shortcut) again and choose **Cancel it**, or use the Cancel button on the progress notification.
@@ -34,7 +34,7 @@ Steps that take a whole block of tactics (bullets `·`, `case … =>`, `next =>`
 doesn't absorb them. The one-line form is re-checked with Lean. If the proof can't be put on one line
 (for example a `calc` block) or the one-line form doesn't check, the verified multi-line proof is kept.
 
-This is controlled by `leanProofFill.acceptedProofFormat`:
+This is controlled by `leanShim.acceptedProofFormat`:
 
 - `singleLine` (default): rewrite on one line as described above.
 - `asGenerated`: keep the proof exactly as the model wrote it.
@@ -51,11 +51,11 @@ theorem add_zero' (n : Nat) : n + 0 = n := by
 ```
 
 With `acceptedProofFormat` set to `base64`, the extension writes accepted proofs this way, adding
-`import LeanShim.Base64` at the top if needed (turn that off with `leanProofFill.base64AutoImport`),
+`import LeanShim.Base64` at the top if needed (turn that off with `leanShim.base64AutoImport`),
 and re-checks the encoded form, restoring the plain proof if anything is wrong.
 
 You can also encode an existing proof by hand: select the tactics and run
-**Lean Proof Fill: Encode Selection as from_base64** from the Command Palette (or the right-click menu).
+**Lean Shim: Encode Selection as from_base64** from the Command Palette (or the right-click menu).
 It replaces the selection with the equivalent `from_base64 "..."` call and adds the import if needed.
 Unlike the automatic path, this one does not re-check with Lean, so encode a proof you know already works.
 The `LeanShim.Base64` library is built automatically in the Codespace; to build it by hand run
@@ -64,14 +64,14 @@ The `LeanShim.Base64` library is built automatically in the Codespace; to build 
 ## Waits for Lean to be ready
 
 Suggestions depend on Lean: it provides the goal at the cursor and checks the result. So when you ask
-for one, the extension first waits up to 3 seconds (`leanProofFill.readyWaitSeconds`) for Lean's server
+for one, the extension first waits up to 3 seconds (`leanShim.readyWaitSeconds`) for Lean's server
 to be running and for the current file to be fully checked. If Lean isn't ready by then, nothing is
 sent to Copilot and a message says what Lean is still doing — starting up, loading the file's imports,
 or checking a particular line — so you can try again when it's done.
 
 ## Checked by Lean before it's accepted
 
-With `leanProofFill.verify` on (the default), each press works like this:
+With `leanShim.verify` on (the default), each press works like this:
 
 1. Copilot suggests proof steps, which are inserted at the cursor.
 2. The extension waits for Lean to finish checking the file, then looks at Lean's messages for the
@@ -79,30 +79,30 @@ With `leanProofFill.verify` on (the default), each press works like this:
    and the gap's own *unsolved goals* error is gone. Suggestions containing `sorry`/`admit` are
    rejected without being inserted.
 3. If Lean rejects it, the extension asks again, sending Lean's errors and the rejected attempts,
-   and replaces only its own inserted text. It tries up to `leanProofFill.maxAttempts` times (default 3).
+   and replaces only its own inserted text. It tries up to `leanShim.maxAttempts` times (default 3).
 4. If an attempt passes, the status bar shows **✓ suggestion verified by Lean**. If none does, the
    file is put back exactly as it was, and you can choose **Insert last attempt anyway**. Pressing
    the button again keeps trying and remembers the rejected attempts.
 
 Errors that were already in the theorem and are unrelated to the gap (same message at the same place)
 don't block acceptance; the status bar mentions them. If Lean takes longer than
-`leanProofFill.verifyTimeoutSeconds`, or the Lean server isn't running, the suggestion is inserted
+`leanShim.verifyTimeoutSeconds`, or the Lean server isn't running, the suggestion is inserted
 but clearly marked as **not verified**. Every attempt and Lean's verdict on it is recorded in the
 output panel (see below).
 
 ## Seeing the prompt sent to the model
 
-Every request is logged to the **Lean Proof Fill** output panel. Each entry shows the model used, the
+Every request is logged to the **Lean Shim** output panel. Each entry shows the model used, the
 full prompt (file context, Lean messages, rejected suggestions), the model's raw reply, and the exact
-text inserted. To open it, run **Lean Proof Fill: Show Prompt and Response Log** from the Command
-Palette, or pick *Lean Proof Fill* in the Output panel's drop-down (**View → Output**). To open it
-automatically on every request, turn on `leanProofFill.showPromptOnRequest`.
+text inserted. To open it, run **Lean Shim: Show Prompt and Response Log** from the Command
+Palette, or pick *Lean Shim* in the Output panel's drop-down (**View → Output**). To open it
+automatically on every request, turn on `leanShim.showPromptOnRequest`.
 
 ## What Lean does when it starts
 
 The first time you open a `.lean` file, the Lean 4 extension shows *"[Server Startup] Starting Lean
-language server and cloning missing project dependencies"*. That is several steps, and Lean Proof Fill
-logs how long each takes to its output panel (**Lean Proof Fill: Show Lean Server Start-up Timeline**).
+language server and cloning missing project dependencies"*. That is several steps, and Lean Shim
+logs how long each takes to its output panel (**Lean Shim: Show Lean Server Start-up Timeline**).
 It looks like this (an illustration; your times will differ):
 
 ```
@@ -124,7 +124,7 @@ It looks like this (an illustration; your times will differ):
 3. **Checking the file** — Lean checks the file's declarations in order; the slowest are listed.
 
 Only the first processing of each file after a server start is timed. To time a start-up again, run
-**Lean 4: Restart Server**. Turn the timeline off with `leanProofFill.logLeanStartup`.
+**Lean 4: Restart Server**. Turn the timeline off with `leanShim.logLeanStartup`.
 
 The server-start step can't be split further from inside VS Code. The notification's *(Click for
 details)* link opens the **Lean: Editor** output, which shows what elan and Lake print (including any
@@ -180,18 +180,18 @@ lake update && lake exe cache get
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `leanProofFill.acceptedProofFormat` | `singleLine` | How to write a verified proof: on one line, exactly as generated, or as a `from_base64` call. |
-| `leanProofFill.base64Module` | `LeanShim.Base64` | The module providing the `from_base64` tactic, imported for the `base64` format and the Encode Selection command. |
-| `leanProofFill.base64AutoImport` | `true` | Add the import automatically when it's missing (the one edit made outside the cursor). |
-| `leanProofFill.modelTimeoutSeconds` | `120` | Cancel a model request that hasn't finished replying within this many seconds. |
-| `leanProofFill.logLeanStartup` | `true` | Log how long the Lean server takes to start and to process each file (see above). |
-| `leanProofFill.readyWaitSeconds` | `3` | How long to wait for Lean to be ready before showing a "please wait" message instead of starting. |
-| `leanProofFill.verify` | `true` | Check each suggestion with Lean, retry automatically, and leave the file unchanged if nothing passes. |
-| `leanProofFill.maxAttempts` | `3` | Suggestions tried per press when verifying (1–10). |
-| `leanProofFill.verifyTimeoutSeconds` | `120` | How long to wait for Lean's check before inserting the suggestion as not verified. |
-| `leanProofFill.contextLines` | `400` | Maximum number of lines of the file sent as context. The header and imports are always included. |
-| `leanProofFill.showPromptOnRequest` | `false` | Open the output panel with the prompt and reply on every request. |
-| `leanProofFill.extraInstructions` | `""` | Extra text added to the prompt, e.g. "Prefer `omega` and `simp`". |
+| `leanShim.acceptedProofFormat` | `singleLine` | How to write a verified proof: on one line, exactly as generated, or as a `from_base64` call. |
+| `leanShim.base64Module` | `LeanShim.Base64` | The module providing the `from_base64` tactic, imported for the `base64` format and the Encode Selection command. |
+| `leanShim.base64AutoImport` | `true` | Add the import automatically when it's missing (the one edit made outside the cursor). |
+| `leanShim.modelTimeoutSeconds` | `120` | Cancel a model request that hasn't finished replying within this many seconds. |
+| `leanShim.logLeanStartup` | `true` | Log how long the Lean server takes to start and to process each file (see above). |
+| `leanShim.readyWaitSeconds` | `3` | How long to wait for Lean to be ready before showing a "please wait" message instead of starting. |
+| `leanShim.verify` | `true` | Check each suggestion with Lean, retry automatically, and leave the file unchanged if nothing passes. |
+| `leanShim.maxAttempts` | `3` | Suggestions tried per press when verifying (1–10). |
+| `leanShim.verifyTimeoutSeconds` | `120` | How long to wait for Lean's check before inserting the suggestion as not verified. |
+| `leanShim.contextLines` | `400` | Maximum number of lines of the file sent as context. The header and imports are always included. |
+| `leanShim.showPromptOnRequest` | `false` | Open the output panel with the prompt and reply on every request. |
+| `leanShim.extraInstructions` | `""` | Extra text added to the prompt, e.g. "Prefer `omega` and `simp`". |
 
 ## Install in a Codespace
 
@@ -209,15 +209,15 @@ bash .devcontainer/install-extension.sh
 
 Then run **Developer: Reload Window**.
 
-The built `lean-proof-fill.vsix` is not committed (`*.vsix` is in `.gitignore`), so pulls never conflict
+The built `lean-shim.vsix` is not committed (`*.vsix` is in `.gitignore`), so pulls never conflict
 on it. Please don't force-add it.
 
 **In another repository's Codespace:** build the package here with `npm install && npm run package`.
-Then copy `lean-proof-fill.vsix` into that Codespace and install it from the Extensions view
+Then copy `lean-shim.vsix` into that Codespace and install it from the Extensions view
 (**… → Install from VSIX…**) or with:
 
 ```bash
-code --install-extension lean-proof-fill.vsix
+code --install-extension lean-shim.vsix
 ```
 
 ## Development

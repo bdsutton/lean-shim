@@ -48,7 +48,7 @@ const fakeModel = (name, id, family) => ({
     return { stream: (async function* () { yield { value: r }; })() };
   },
 });
-// Copilot offers several models; Lean Proof Fill must always pick Auto.
+// Copilot offers several models; Lean Shim must always pick Auto.
 let offeredModels = [fakeModel('GPT Fake', 'gpt-fake', 'gpt-fake'), fakeModel('Auto', 'auto', 'auto')];
 let leanBusy = false; // when true, Lean never finishes checking the file
 const leanClient = {
@@ -93,7 +93,7 @@ const vscode = {
   },
   commands: {
     registerCommand: () => ({ dispose() {} }),
-    registerTextEditorCommand: (id, f) => { if (id === 'leanProofFill.suggest') cmd = f; return { dispose() {} }; },
+    registerTextEditorCommand: (id, f) => { if (id === 'leanShim.suggest') cmd = f; return { dispose() {} }; },
   },
 };
 const origLoad = Module._load;

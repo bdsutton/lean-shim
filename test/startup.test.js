@@ -52,7 +52,7 @@ const R = (a, b) => ({ range: { start: { line: a }, end: { line: b } }, kind: 1 
   lines = [];
   const d2 = watchLeanStartup((l) => lines.push(l));
   await sleep(50);
-  assert.match(lines.join('\n'), /already running when Lean Proof Fill loaded/);
+  assert.match(lines.join('\n'), /already running when Lean Shim loaded/);
   // a later manual restart is timed
   running.restartingE.fire(); await sleep(20); running.restartedE.fire();
   assert.match(lines.join('\n'), /Lean server ready after/);

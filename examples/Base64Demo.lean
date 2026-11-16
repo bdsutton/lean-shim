@@ -3,7 +3,7 @@ import Mathlib.Basic.Real.Basic
 import LeanShim.Base64
 
 /-
-Demo of the `from_base64` tactic (`leanProofFill.acceptedProofFormat` = "base64").
+Demo of the `from_base64` tactic (`leanShim.acceptedProofFormat` = "base64").
 
 With that format selected, when Lean verifies a suggestion the extension replaces the proof text with a
 `from_base64 "..."` call like the ones below, and (if needed) adds the `import LeanShim.Base64`

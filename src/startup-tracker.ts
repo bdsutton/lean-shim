@@ -81,8 +81,8 @@ export class StartupTracker {
   alreadyStarted(running: boolean) {
     this.log(
       running
-        ? 'Lean server was already running when Lean Proof Fill loaded; its start-up was not timed (run "Lean 4: Restart Server" to time it).'
-        : 'Lean server was already starting when Lean Proof Fill loaded; timing from now.',
+        ? 'Lean server was already running when Lean Shim loaded; its start-up was not timed (run "Lean 4: Restart Server" to time it).'
+        : 'Lean server was already starting when Lean Shim loaded; timing from now.',
     );
     if (!running) {
       this.serverStart = this.deps.now();

@@ -1,7 +1,7 @@
 /-
 `from_base64 "<base64>"` — decode a standard Base64 string to Lean 4 tactic source and run it.
 
-The Lean Proof Fill VS Code extension writes proofs it has verified in this encoded form, so the
+The Lean Shim VS Code extension writes proofs it has verified in this encoded form, so the
 source text of the proof is not shown in the file. Decoding happens at elaboration time: the proof
 is still fully checked by Lean, exactly as if the tactics were written out.
 -/

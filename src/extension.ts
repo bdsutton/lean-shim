@@ -33,13 +33,13 @@ let statusItem: vscode.StatusBarItem;
 let log: vscode.OutputChannel;
 
 export function activate(context: vscode.ExtensionContext) {
-  log = vscode.window.createOutputChannel('Lean Proof Fill');
+  log = vscode.window.createOutputChannel('Lean Shim');
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusItem.command = 'leanProofFill.suggest';
+  statusItem.command = 'leanShim.suggest';
   setIdleStatus();
   updateStatusVisibility(vscode.window.activeTextEditor);
 
-  if (vscode.workspace.getConfiguration('leanProofFill').get<boolean>('logLeanStartup', true)) {
+  if (vscode.workspace.getConfiguration('leanShim').get<boolean>('logLeanStartup', true)) {
     context.subscriptions.push(watchLeanStartup((line) => log.appendLine(line)));
   }
 
@@ -48,10 +48,10 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     statusItem,
     log,
-    vscode.commands.registerCommand('leanProofFill.showLog', () => log.show(true)),
-    vscode.commands.registerCommand('leanProofFill.showStartupTimeline', () => log.show(true)),
-    vscode.commands.registerTextEditorCommand('leanProofFill.suggest', (editor) => suggest(editor)),
-    vscode.commands.registerTextEditorCommand('leanProofFill.encodeSelection', (editor) => encodeSelection(editor)),
+    vscode.commands.registerCommand('leanShim.showLog', () => log.show(true)),
+    vscode.commands.registerCommand('leanShim.showStartupTimeline', () => log.show(true)),
+    vscode.commands.registerTextEditorCommand('leanShim.suggest', (editor) => suggest(editor)),
+    vscode.commands.registerTextEditorCommand('leanShim.encodeSelection', (editor) => encodeSelection(editor)),
     vscode.window.onDidChangeActiveTextEditor(updateStatusVisibility),
   );
 }
@@ -77,7 +77,7 @@ function isAutoModel(m: vscode.LanguageModelChat): boolean {
   return [m.id, m.family, m.name].some((v) => typeof v === 'string' && v.trim().toLowerCase() === 'auto');
 }
 
-/** Lean Proof Fill always uses Copilot's Auto model. */
+/** Lean Shim always uses Copilot's Auto model. */
 async function getModel(): Promise<vscode.LanguageModelChat | undefined> {
   const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
   const auto = models.find(isAutoModel);
@@ -87,7 +87,7 @@ async function getModel(): Promise<vscode.LanguageModelChat | undefined> {
   if (!models.length) {
     void vscode.window
       .showErrorMessage(
-        'Lean Proof Fill: no GitHub Copilot language model is available. Make sure the GitHub Copilot Chat extension is installed and you are signed in.',
+        'Lean Shim: no GitHub Copilot language model is available. Make sure the GitHub Copilot Chat extension is installed and you are signed in.',
         'Install Copilot Chat',
       )
       .then((choice) => {
@@ -100,8 +100,8 @@ async function getModel(): Promise<vscode.LanguageModelChat | undefined> {
       log.appendLine(`Could not list models: ${e instanceof Error ? e.message : String(e)}`);
     }
     void vscode.window.showErrorMessage(
-      "Lean Proof Fill: Copilot's Auto model isn't available to extensions right now, so no request was sent. " +
-        'The models VS Code does offer are listed in the Lean Proof Fill output panel.',
+      "Lean Shim: Copilot's Auto model isn't available to extensions right now, so no request was sent. " +
+        'The models VS Code does offer are listed in the Lean Shim output panel.',
     );
   }
   return undefined;
@@ -141,7 +141,7 @@ async function logAvailableModels(reason: string): Promise<void> {
   const all = await vscode.lm.selectChatModels();
   logSection(`${new Date().toLocaleString()} — AVAILABLE LANGUAGE MODELS (${all.length})`, '=');
   log.appendLine(reason);
-  log.appendLine('Lean Proof Fill only uses Copilot\'s Auto model (vendor "copilot", id/family/name "auto").');
+  log.appendLine('Lean Shim only uses Copilot\'s Auto model (vendor "copilot", id/family/name "auto").');
   const known = ['name', 'id', 'vendor', 'family', 'version', 'maxInputTokens'];
   all.forEach((m, i) => {
     logSection(`${i + 1}. ${m.name}`);
@@ -177,12 +177,12 @@ function rejectedSuggestionProblems(doc: vscode.TextDocument, prev: vscode.Range
 
 async function suggest(editor: vscode.TextEditor) {
   if (editor.document.languageId !== 'lean4') {
-    vscode.window.showWarningMessage('Lean Proof Fill only works in Lean 4 files.');
+    vscode.window.showWarningMessage('Lean Shim only works in Lean 4 files.');
     return;
   }
   if (busy) {
     void vscode.window
-      .showInformationMessage('Lean Proof Fill: a suggestion is already being generated.', 'Cancel it')
+      .showInformationMessage('Lean Shim: a suggestion is already being generated.', 'Cancel it')
       .then((choice) => {
         if (choice) currentRun?.cancel();
       });
@@ -204,7 +204,7 @@ async function askModel(
   prompt: string,
   runToken: vscode.CancellationToken,
 ): Promise<string | 'cancelled' | 'error'> {
-  const timeoutSec = Math.max(10, vscode.workspace.getConfiguration('leanProofFill').get<number>('modelTimeoutSeconds', 120));
+  const timeoutSec = Math.max(10, vscode.workspace.getConfiguration('leanShim').get<number>('modelTimeoutSeconds', 120));
   const cts = new vscode.CancellationTokenSource();
   const sub = runToken.onCancellationRequested(() => cts.cancel());
   const token = cts.token;
@@ -232,8 +232,8 @@ async function askModel(
     log.appendLine(timedOut ? `${model.name} did not finish responding within ${timeoutSec}s; request cancelled.` : err instanceof Error ? err.message : String(err));
     if (timedOut) {
       vscode.window.showWarningMessage(
-        `Lean Proof Fill: ${model.name} did not finish responding within ${timeoutSec}s, so the request was cancelled. ` +
-          'Try again, or raise leanProofFill.modelTimeoutSeconds.',
+        `Lean Shim: ${model.name} did not finish responding within ${timeoutSec}s, so the request was cancelled. ` +
+          'Try again, or raise leanShim.modelTimeoutSeconds.',
       );
     } else {
       reportError(err);
@@ -258,7 +258,7 @@ async function askModelInner(
     }
     const response = await model.sendRequest(
       [vscode.LanguageModelChatMessage.User(prompt)],
-      { justification: 'Lean Proof Fill sends the current Lean file to Copilot to suggest proof steps at your cursor.' },
+      { justification: 'Lean Shim sends the current Lean file to Copilot to suggest proof steps at your cursor.' },
       token,
     );
 
@@ -326,15 +326,15 @@ async function replaceOwnText(doc: vscode.TextDocument, range: vscode.Range, tex
 async function encodeSelection(editor: vscode.TextEditor) {
   const doc = editor.document;
   if (doc.languageId !== 'lean4') {
-    vscode.window.showWarningMessage('Lean Proof Fill: this command only works in Lean 4 files.');
+    vscode.window.showWarningMessage('Lean Shim: this command only works in Lean 4 files.');
     return;
   }
   const sel = editor.selection;
   if (sel.isEmpty || !doc.getText(sel).trim()) {
-    vscode.window.showWarningMessage('Lean Proof Fill: select the proof tactics to encode first.');
+    vscode.window.showWarningMessage('Lean Shim: select the proof tactics to encode first.');
     return;
   }
-  const cfg = vscode.workspace.getConfiguration('leanProofFill');
+  const cfg = vscode.workspace.getConfiguration('leanShim');
   const moduleName = (cfg.get<string>('base64Module', 'LeanShim.Base64') || 'LeanShim.Base64').trim();
   const autoImport = cfg.get<boolean>('base64AutoImport', true);
   const eol = doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
@@ -357,7 +357,7 @@ async function encodeSelection(editor: vscode.TextEditor) {
   if (willImport) edit.insert(doc.uri, doc.positionAt(importInsertOffset(doc.getText())), importText);
   edit.replace(doc.uri, sel, encodedText);
   if (!(await vscode.workspace.applyEdit(edit))) {
-    vscode.window.showErrorMessage('Lean Proof Fill: could not replace the selection.');
+    vscode.window.showErrorMessage('Lean Shim: could not replace the selection.');
     return;
   }
 
@@ -372,11 +372,11 @@ async function encodeSelection(editor: vscode.TextEditor) {
   log.appendLine(encodedText.replace(/\r\n/g, '\n'));
   if (needImport && !autoImport) {
     vscode.window.showWarningMessage(
-      `Lean Proof Fill: selection encoded, but the file does not import \`${moduleName}\`. Add \`import ${moduleName}\` for \`from_base64\` to work.`,
+      `Lean Shim: selection encoded, but the file does not import \`${moduleName}\`. Add \`import ${moduleName}\` for \`from_base64\` to work.`,
     );
   } else {
     vscode.window.setStatusBarMessage(
-      `Lean Proof Fill: selection encoded as from_base64${willImport ? ` (added \`import ${moduleName}\`)` : ''}. Ctrl+Z to undo.`,
+      `Lean Shim: selection encoded as from_base64${willImport ? ` (added \`import ${moduleName}\`)` : ''}. Ctrl+Z to undo.`,
       6000,
     );
   }
@@ -384,7 +384,7 @@ async function encodeSelection(editor: vscode.TextEditor) {
 
 async function runSuggest(editor: vscode.TextEditor) {
   const doc = editor.document;
-  const cfg = vscode.workspace.getConfiguration('leanProofFill');
+  const cfg = vscode.workspace.getConfiguration('leanShim');
 
   // Don't start unless Lean is ready (server running, this file fully checked): otherwise the goal
   // lookup and the check of the suggestion would sit waiting for Lean. Wait a few seconds at most.
@@ -403,7 +403,7 @@ async function runSuggest(editor: vscode.TextEditor) {
     if (!readiness.cancelled) {
       log.appendLine(`[${new Date().toLocaleTimeString()}] Not started: Lean isn't ready (${readiness.reason}).`);
       void vscode.window.showInformationMessage(
-        `Lean Proof Fill: Lean isn't ready yet — ${readiness.reason}. ` +
+        `Lean Shim: Lean isn't ready yet — ${readiness.reason}. ` +
           "Please wait until it's done (the orange bar beside the editor shows what Lean is still working on), then try again.",
       );
     }
@@ -446,7 +446,7 @@ async function runSuggest(editor: vscode.TextEditor) {
   );
 
   await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: 'Lean Proof Fill', cancellable: true },
+    { location: vscode.ProgressLocation.Notification, title: 'Lean Shim', cancellable: true },
     async (progress, progressToken) => {
       const run = new vscode.CancellationTokenSource();
       currentRun = run;
@@ -459,7 +459,7 @@ async function runSuggest(editor: vscode.TextEditor) {
       const step = async <T>(label: string, work: () => Promise<T>): Promise<T> => {
         const t0 = Date.now();
         log.appendLine(`[${clock()}] ${label}…`);
-        statusItem.tooltip = `Lean Proof Fill: ${label}… (click to cancel)`;
+        statusItem.tooltip = `Lean Shim: ${label}… (click to cancel)`;
         progress.report({ message: `${label}…` });
         const tick = setInterval(
           () => progress.report({ message: `${label}… ${Math.round((Date.now() - t0) / 1000)}s` }),
@@ -581,7 +581,7 @@ async function runSuggest(editor: vscode.TextEditor) {
         const text = layoutInsertion(proof, linePrefix, eol, tabSize);
         const range = await replaceOwnText(doc, target, text);
         if (!range) {
-          vscode.window.showErrorMessage('Lean Proof Fill: could not apply the edit.');
+          vscode.window.showErrorMessage('Lean Shim: could not apply the edit.');
           outcome = 'error';
           return;
         }
@@ -697,7 +697,7 @@ async function runSuggest(editor: vscode.TextEditor) {
       remember();
       placeCursor();
       vscode.window.setStatusBarMessage(
-        `$(pass) Lean Proof Fill: suggestion verified by Lean${attemptsMade > 1 ? ` (attempt ${attemptsMade})` : ''}` +
+        `$(pass) Lean Shim: suggestion verified by Lean${attemptsMade > 1 ? ` (attempt ${attemptsMade})` : ''}` +
           `${note ? ` — ${note}` : ''}. Press again for a different one.`,
         8000,
       );
@@ -705,20 +705,20 @@ async function runSuggest(editor: vscode.TextEditor) {
     case 'unverified':
       remember();
       placeCursor();
-      if (verify) vscode.window.showWarningMessage(`Lean Proof Fill: suggestion inserted but NOT verified — ${note}.`);
-      else vscode.window.setStatusBarMessage('Lean Proof Fill: suggestion inserted — press again for a different one, or Ctrl+Z to undo.', 6000);
+      if (verify) vscode.window.showWarningMessage(`Lean Shim: suggestion inserted but NOT verified — ${note}.`);
+      else vscode.window.setStatusBarMessage('Lean Shim: suggestion inserted — press again for a different one, or Ctrl+Z to undo.', 6000);
       return;
     case 'cancelled':
       if (lastAttemptText !== undefined) {
         remember();
         placeCursor();
-        vscode.window.showWarningMessage('Lean Proof Fill: cancelled. The current suggestion was left in place but has NOT been verified.');
+        vscode.window.showWarningMessage('Lean Shim: cancelled. The current suggestion was left in place but has NOT been verified.');
       }
       return;
     case 'aborted':
       last = undefined;
       vscode.window.showWarningMessage(
-        'Lean Proof Fill: stopped because the editor was closed or the inserted text could no longer be located. Anything left in the file has not been verified.',
+        'Lean Shim: stopped because the editor was closed or the inserted text could no longer be located. Anything left in the file has not been verified.',
       );
       return;
     case 'failed':
@@ -735,14 +735,14 @@ async function runSuggest(editor: vscode.TextEditor) {
       remember();
       placeCursor();
       if (outcome === 'error' || lastAttemptText === undefined) {
-        if (outcome === 'failed') vscode.window.showWarningMessage('Lean Proof Fill: no usable suggestion was produced. Try again.');
+        if (outcome === 'failed') vscode.window.showWarningMessage('Lean Shim: no usable suggestion was produced. Try again.');
         return;
       }
       // Not awaited: an unanswered notification must not keep the command (and the status bar) busy.
       const attemptText = lastAttemptText;
       void vscode.window
         .showWarningMessage(
-          `Lean Proof Fill: none of the ${attemptsMade} suggestion(s) passed Lean's check, so the file was left unchanged. ` +
+          `Lean Shim: none of the ${attemptsMade} suggestion(s) passed Lean's check, so the file was left unchanged. ` +
             'Press again to keep trying (rejected attempts are remembered).',
           'Insert last attempt anyway',
           'Show log',
@@ -957,11 +957,11 @@ function reportError(err: unknown) {
     } else if (err.code === vscode.LanguageModelError.Blocked.name) {
       msg = 'the request was blocked (quota or rate limit). Try again later.';
     } else if (err.code === vscode.LanguageModelError.NotFound.name) {
-      msg = 'the selected Copilot model was not found. Use "Lean Proof Fill: Select Copilot Model".';
+      msg = 'the selected Copilot model was not found. Use "Lean Shim: Select Copilot Model".';
     }
-    vscode.window.showErrorMessage(`Lean Proof Fill: ${msg}`);
+    vscode.window.showErrorMessage(`Lean Shim: ${msg}`);
   } else {
-    vscode.window.showErrorMessage(`Lean Proof Fill: ${err instanceof Error ? err.message : String(err)}`);
+    vscode.window.showErrorMessage(`Lean Shim: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

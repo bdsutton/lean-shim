@@ -1,6 +1,6 @@
 {
-  "name": "lean-proof-fill",
-  "displayName": "Lean Proof Fill (Copilot)",
+  "name": "lean-shim",
+  "displayName": "Lean Shim",
   "description": "Insert AI-suggested Lean 4 proof steps at the cursor using GitHub Copilot. Press again to get a different suggestion.",
   "version": "0.1.0",
   "publisher": "local",
@@ -27,96 +27,96 @@
   "contributes": {
     "commands": [
       {
-        "command": "leanProofFill.suggest",
+        "command": "leanShim.suggest",
         "title": "Suggest Proof Steps at Cursor",
-        "category": "Lean Proof Fill",
+        "category": "Lean Shim",
         "icon": "$(sparkle)"
       },
       {
-        "command": "leanProofFill.encodeSelection",
+        "command": "leanShim.encodeSelection",
         "title": "Encode Selection as from_base64",
-        "category": "Lean Proof Fill",
+        "category": "Lean Shim",
         "icon": "$(lock)"
       },
       {
-        "command": "leanProofFill.showLog",
+        "command": "leanShim.showLog",
         "title": "Show Prompt and Response Log",
-        "category": "Lean Proof Fill",
+        "category": "Lean Shim",
         "icon": "$(output)"
       },
       {
-        "command": "leanProofFill.showStartupTimeline",
+        "command": "leanShim.showStartupTimeline",
         "title": "Show Lean Server Start-up Timeline",
-        "category": "Lean Proof Fill"
+        "category": "Lean Shim"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "leanProofFill.suggest",
+          "command": "leanShim.suggest",
           "when": "editorLangId == lean4",
           "group": "navigation"
         }
       ],
       "editor/context": [
         {
-          "command": "leanProofFill.suggest",
+          "command": "leanShim.suggest",
           "when": "editorLangId == lean4",
           "group": "navigation@100"
         },
         {
-          "command": "leanProofFill.encodeSelection",
+          "command": "leanShim.encodeSelection",
           "when": "editorLangId == lean4 && editorHasSelection",
           "group": "navigation@101"
         }
       ],
       "commandPalette": [
         {
-          "command": "leanProofFill.suggest",
+          "command": "leanShim.suggest",
           "when": "editorLangId == lean4"
         },
         {
-          "command": "leanProofFill.encodeSelection",
+          "command": "leanShim.encodeSelection",
           "when": "editorLangId == lean4"
         }
       ]
     },
     "keybindings": [
       {
-        "command": "leanProofFill.suggest",
+        "command": "leanShim.suggest",
         "key": "ctrl+alt+l",
         "mac": "cmd+alt+l",
         "when": "editorTextFocus && editorLangId == lean4 && !editorReadonly"
       }
     ],
     "configuration": {
-      "title": "Lean Proof Fill",
+      "title": "Lean Shim",
       "properties": {
-        "leanProofFill.modelTimeoutSeconds": {
+        "leanShim.modelTimeoutSeconds": {
           "type": "number",
           "default": 120,
           "minimum": 10,
           "description": "How long to wait for the model to finish a reply before cancelling the request (seconds)."
         },
-        "leanProofFill.verify": {
+        "leanShim.verify": {
           "type": "boolean",
           "default": true,
           "description": "Check each suggestion with Lean before accepting it. Suggestions that Lean rejects are retried automatically (with Lean's errors fed back to the model); if none passes, the file is left unchanged."
         },
-        "leanProofFill.maxAttempts": {
+        "leanShim.maxAttempts": {
           "type": "number",
           "default": 3,
           "minimum": 1,
           "maximum": 10,
           "description": "How many suggestions to try per button press when verification is on, before giving up."
         },
-        "leanProofFill.verifyTimeoutSeconds": {
+        "leanShim.verifyTimeoutSeconds": {
           "type": "number",
           "default": 120,
           "minimum": 5,
           "description": "How long to wait for Lean to finish checking a suggestion. If Lean takes longer, the suggestion is left in place and marked as not verified."
         },
-        "leanProofFill.acceptedProofFormat": {
+        "leanShim.acceptedProofFormat": {
           "type": "string",
           "enum": [
             "singleLine",
@@ -129,40 +129,40 @@
             "Insert the proof exactly as the model wrote it.",
             "Replace the proof with a `from_base64 \"...\"` call that encodes it (needs the LeanShim.Base64 module)."
           ],
-          "description": "How to write a proof into the file once Lean has verified it. Requires leanProofFill.verify."
+          "description": "How to write a proof into the file once Lean has verified it. Requires leanShim.verify."
         },
-        "leanProofFill.base64Module": {
+        "leanShim.base64Module": {
           "type": "string",
           "default": "LeanShim.Base64",
-          "description": "The Lean module providing the `from_base64` tactic, imported when leanProofFill.acceptedProofFormat is \"base64\" and by the Encode Selection command."
+          "description": "The Lean module providing the `from_base64` tactic, imported when leanShim.acceptedProofFormat is \"base64\" and by the Encode Selection command."
         },
-        "leanProofFill.base64AutoImport": {
+        "leanShim.base64AutoImport": {
           "type": "boolean",
           "default": true,
           "description": "If the Base64 tactic module is not imported, add the import automatically (this is the one change made outside the cursor). If off, the proof is left as plain text when the import is missing."
         },
-        "leanProofFill.contextLines": {
+        "leanShim.contextLines": {
           "type": "number",
           "default": 400,
           "minimum": 20,
           "description": "Maximum number of lines of the file (centred on the cursor) sent to the model as context."
         },
-        "leanProofFill.extraInstructions": {
+        "leanShim.extraInstructions": {
           "type": "string",
           "default": "",
           "description": "Additional instructions appended to the prompt (e.g. \"Prefer Mathlib tactics like linarith and simp\")."
         },
-        "leanProofFill.showPromptOnRequest": {
+        "leanShim.showPromptOnRequest": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically open the 'Lean Proof Fill' output panel showing the prompt sent to the model (and its reply) each time a suggestion is requested."
+          "description": "Automatically open the 'Lean Shim' output panel showing the prompt sent to the model (and its reply) each time a suggestion is requested."
         },
-        "leanProofFill.logLeanStartup": {
+        "leanShim.logLeanStartup": {
           "type": "boolean",
           "default": true,
-          "description": "Log a timeline of the Lean server's start-up and of the first processing of each file (time spent loading imports vs. checking the file, and the slowest declarations) to the Lean Proof Fill output panel. Takes effect after reloading the window."
+          "description": "Log a timeline of the Lean server's start-up and of the first processing of each file (time spent loading imports vs. checking the file, and the slowest declarations) to the Lean Shim output panel. Takes effect after reloading the window."
         },
-        "leanProofFill.readyWaitSeconds": {
+        "leanShim.readyWaitSeconds": {
           "type": "number",
           "default": 3,
           "minimum": 0,
@@ -174,7 +174,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "package": "vsce package --allow-missing-repository --skip-license -o lean-proof-fill.vsix",
+    "package": "vsce package --allow-missing-repository --skip-license -o lean-shim.vsix",
     "vscode:prepublish": "npm run compile",
     "test": "npm run compile && node test/format.test.js && node test/check.test.js && node test/encode.test.js && node test/singleline.test.js && node test/askmodel.test.js && node test/waitforlean.test.js && node test/flow.test.js && node test/startup-tracker.test.js && node test/startup.test.js && node test/ready.test.js"
   },
