@@ -94,7 +94,8 @@ automatically on every request, turn on `leanProofFill.showPromptOnRequest`.
 
 The first time you open a `.lean` file, the Lean 4 extension shows *"[Server Startup] Starting Lean
 language server and cloning missing project dependencies"*. That is several steps, and Lean Proof Fill
-logs how long each takes to its output panel (**Lean Proof Fill: Show Lean Server Start-up Timeline**):
+logs how long each takes to its output panel (**Lean Proof Fill: Show Lean Server Start-up Timeline**).
+It looks like this (an illustration; your times will differ):
 
 ```
 [10:41:02] Lean server starting: choosing the Lean version (elan), launching `lake serve` …
