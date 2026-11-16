@@ -90,6 +90,43 @@ text inserted. To open it, run **Lean Proof Fill: Show Prompt and Response Log**
 Palette, or pick *Lean Proof Fill* in the Output panel's drop-down (**View → Output**). To open it
 automatically on every request, turn on `leanProofFill.showPromptOnRequest`.
 
+## What Lean does when it starts
+
+The first time you open a `.lean` file, the Lean 4 extension shows *"[Server Startup] Starting Lean
+language server and cloning missing project dependencies"*. That is several steps, and Lean Proof Fill
+logs how long each takes to its output panel (**Lean Proof Fill: Show Lean Server Start-up Timeline**):
+
+```
+[10:41:02] Lean server starting: choosing the Lean version (elan), launching `lake serve` …
+[10:41:05] Lean server ready after 3.1s.
+[10:41:05] examples/MathlibDemo.lean: Lean started processing the file — loading imports (lines 1–1)…
+[10:41:19] examples/MathlibDemo.lean: imports loaded after 13.8s.
+[10:41:20] examples/MathlibDemo.lean: finished — 14.6s in total: loading imports 13.8s, checking the file 0.8s.
+    slowest parts of the file:
+      line 6: 0.5s  theorem sum_sq_nonneg (a b : ℝ) : 0 ≤ a ^ 2 + b ^ 2 := by
+```
+
+1. **Server start** — choosing the Lean version with elan (the first time, this downloads Lean), launching
+   `lake serve`, which reads the lakefile and checks the project's dependencies (cloning any that are
+   missing), and connecting.
+2. **Loading imports**, for each file — preparing the imports (`lake setup-file`, building project
+   modules that are out of date) and loading their compiled files. With `import Mathlib` this is usually
+   the slowest step.
+3. **Checking the file** — Lean checks the file's declarations in order; the slowest are listed.
+
+Only the first processing of each file after a server start is timed. To time a start-up again, run
+**Lean 4: Restart Server**. Turn the timeline off with `leanProofFill.logLeanStartup`.
+
+The server-start step can't be split further from inside VS Code. The notification's *(Click for
+details)* link opens the **Lean: Editor** output, which shows what elan and Lake print (including any
+cloning). To time the sub-steps separately, run these in a terminal in the project folder:
+
+```bash
+time elan which lean      # choose the Lean version (downloads it the first time)
+time lake env true        # what `lake serve` does first: read the lakefile, check and clone dependencies
+time lake env lean examples/MathlibDemo.lean   # load the imports and check the file
+```
+
 ## Requirements
 
 * **GitHub Copilot Chat** installed and signed in. It is available in Codespaces by default if your
@@ -137,6 +174,7 @@ lake update && lake exe cache get
 | `leanProofFill.base64Module` | `LeanShim.Base64` | The module providing the `from_base64` tactic, imported for the `base64` format and the Encode Selection command. |
 | `leanProofFill.base64AutoImport` | `true` | Add the import automatically when it's missing (the one edit made outside the cursor). |
 | `leanProofFill.modelTimeoutSeconds` | `120` | Cancel a model request that hasn't finished replying within this many seconds. |
+| `leanProofFill.logLeanStartup` | `true` | Log how long the Lean server takes to start and to process each file (see above). |
 | `leanProofFill.verify` | `true` | Check each suggestion with Lean, retry automatically, and leave the file unchanged if nothing passes. |
 | `leanProofFill.maxAttempts` | `3` | Suggestions tried per press when verifying (1–10). |
 | `leanProofFill.verifyTimeoutSeconds` | `120` | How long to wait for Lean's check before inserting the suggestion as not verified. |

@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { Baseline, describe, judge, makeBaseline, touches, usesSorry } from './check';
 import { hasImport, importInsertOffset, tacticCall } from './encode';
 import { toSingleLine } from './singleline';
+import { watchLeanStartup } from './startup';
 import { buildPrompt, extractProof, layoutInsertion } from './format';
 import { goalAtCursor, GoalResult } from './goal';
 import { currentDiags, declarationRegion, span, WaitResult, waitForLean } from './lean';
@@ -37,10 +38,15 @@ export function activate(context: vscode.ExtensionContext) {
   setIdleStatus();
   updateStatusVisibility(vscode.window.activeTextEditor);
 
+  if (vscode.workspace.getConfiguration('leanProofFill').get<boolean>('logLeanStartup', true)) {
+    context.subscriptions.push(watchLeanStartup((line) => log.appendLine(line)));
+  }
+
   context.subscriptions.push(
     statusItem,
     log,
     vscode.commands.registerCommand('leanProofFill.showLog', () => log.show(true)),
+    vscode.commands.registerCommand('leanProofFill.showStartupTimeline', () => log.show(true)),
     vscode.commands.registerTextEditorCommand('leanProofFill.suggest', (editor) => suggest(editor)),
     vscode.commands.registerTextEditorCommand('leanProofFill.encodeSelection', (editor) => encodeSelection(editor)),
     vscode.commands.registerCommand('leanProofFill.selectModel', selectModel),
