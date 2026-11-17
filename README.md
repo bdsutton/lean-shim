@@ -186,6 +186,11 @@ The slow set-up work happens in steps that GitHub Codespaces **prebuilds** run a
 - `onCreateCommand` → `.devcontainer/setup.sh`: installs elan (Lean's version manager).
 - `updateContentCommand` → `.devcontainer/update-content.sh`: downloads the Lean toolchain and all of
   Mathlib's prebuilt files, then builds Lean Shim. Rerun whenever the prebuild is refreshed for new commits.
+- `postStartCommand` → `.devcontainer/warm-lean.sh`: every time the Codespace starts, reads in the
+  background the prebuilt Lean files that the repo's `.lean` files import, including Lean's core library
+  (log: `/tmp/lean-shim-warm.log`). A new Codespace starts with a cold disk, and without this the first
+  file opened waits minutes for those files with Lean mostly idle. Files added later are covered from the
+  next start; to warm them right away, run `bash .devcontainer/warm-lean.sh`.
 - `postAttachCommand` → `.devcontainer/install-extension.sh`: only installs the already-built extension
   when the Codespace opens.
 
@@ -195,7 +200,9 @@ the Codespace is created.
 
 `lake`, `lean` and `elan` are on the PATH in the Codespace's terminals (`~/.elan/bin`).
 
-Mathlib uses a lot of memory: a 2-core Codespace (8 GB RAM) works, and a 4-core machine is noticeably faster.
+Mathlib uses a lot of memory, so new Codespaces default to at least 4 cores and 16 GB
+(`"hostRequirements": { "cpus": 4 }` in `devcontainer.json`). That uses a personal account's monthly
+Codespaces allowance twice as fast as a 2-core machine.
 
 To move to a newer Mathlib, change `rev` in `lakefile.toml` and the version in `lean-toolchain` to
 match, then run:
