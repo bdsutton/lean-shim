@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Baseline, describe, judge, makeBaseline, touches, usesSorry } from './check';
 import { toSingleLine } from './singleline';
+import { CopilotState, copilotModels, getCopilotState, signInToCopilot, stateMessage, waitForAuto, watchCopilot } from './copilot';
 import { checkLeanReady, Readiness, trackLeanProgress } from './ready';
 import { watchLeanStartup } from './startup';
 import { buildPrompt, extractProof, layoutInsertion } from './format';
@@ -26,12 +27,16 @@ interface LastInsertion {
 
 let last: LastInsertion | undefined;
 let busy = false;
+let extContext: vscode.ExtensionContext;
+/** Copilot's readiness, kept up to date by watchCopilot (assume fine until known). */
+let copilot: CopilotState = 'ready';
 /** Cancels the request in progress (also triggered by the progress notification's Cancel button). */
 let currentRun: vscode.CancellationTokenSource | undefined;
 let statusItem: vscode.StatusBarItem;
 let log: vscode.OutputChannel;
 
 export function activate(context: vscode.ExtensionContext) {
+  extContext = context;
   log = vscode.window.createOutputChannel('Lean Shim');
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusItem.command = 'leanShim.suggest';
@@ -43,6 +48,18 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   context.subscriptions.push(trackLeanProgress());
+  context.subscriptions.push(
+    vscode.commands.registerCommand('leanShim.copilotStatus', copilotStatusAction),
+    watchCopilot(context, {
+      startupWaitMs: 20000,
+      autoSignIn: vscode.workspace.getConfiguration('leanShim').get<boolean>('autoSignInToCopilot', true),
+      onState: (s) => {
+        copilot = s;
+        if (!busy) setIdleStatus();
+      },
+      log: (line) => log.appendLine(line),
+    }),
+  );
 
   context.subscriptions.push(
     statusItem,
@@ -57,8 +74,29 @@ export function activate(context: vscode.ExtensionContext) {
 export function deactivate() {}
 
 function setIdleStatus() {
-  statusItem.text = '$(sparkle) Fill Proof';
-  statusItem.tooltip = 'Insert AI-suggested Lean proof steps at the cursor (press again for a different suggestion)';
+  if (copilot === 'signedOut' || copilot === 'notInstalled') {
+    statusItem.text = '$(account) Sign in to Copilot';
+    statusItem.tooltip = `${stateMessage(copilot)} Click to sign in.`;
+    statusItem.command = 'leanShim.copilotStatus';
+  } else if (copilot === 'denied' || copilot === 'noAuto') {
+    statusItem.text = '$(warning) Fill Proof';
+    statusItem.tooltip = `${stateMessage(copilot)} Click for details.`;
+    statusItem.command = 'leanShim.copilotStatus';
+  } else {
+    statusItem.text = '$(sparkle) Fill Proof';
+    statusItem.tooltip = 'Insert AI-suggested Lean proof steps at the cursor (press again for a different suggestion)';
+    statusItem.command = 'leanShim.suggest';
+  }
+}
+
+/** What the status bar button does when Copilot isn't usable. */
+async function copilotStatusAction() {
+  const state = await getCopilotState(extContext);
+  copilot = state;
+  if (!busy) setIdleStatus();
+  if (state === 'signedOut' || state === 'notInstalled') await signInToCopilot();
+  else if (state === 'ready' || state === 'needsPermission') void vscode.window.showInformationMessage(stateMessage(state));
+  else void vscode.window.showWarningMessage(stateMessage(state));
 }
 
 function updateStatusVisibility(editor: vscode.TextEditor | undefined) {
@@ -70,30 +108,27 @@ function updateStatusVisibility(editor: vscode.TextEditor | undefined) {
 // Model selection
 // ---------------------------------------------------------------------------
 
-/** Is this Copilot's "Auto" model (Copilot picks the underlying model for each request)? */
-function isAutoModel(m: vscode.LanguageModelChat): boolean {
-  return [m.id, m.family, m.name].some((v) => typeof v === 'string' && v.trim().toLowerCase() === 'auto');
-}
-
-/** Lean Shim always uses Copilot's Auto model. */
+/** Lean Shim always uses Copilot's Auto model. Handles Copilot not being signed in or allowed. */
 async function getModel(): Promise<vscode.LanguageModelChat | undefined> {
-  const models = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-  const auto = models.find(isAutoModel);
-  if (auto) return auto;
+  let state = await getCopilotState(extContext);
+  if (state === 'signedOut') {
+    // Copilot may still be starting up (its models appear a few seconds after the window opens).
+    statusItem.text = '$(loading~spin) Waiting for Copilot…';
+    if (await waitForAuto(5000)) state = await getCopilotState(extContext);
+  }
+  if (state === 'ready' || state === 'needsPermission') {
+    // needsPermission: VS Code asks the user once, when this first request is sent.
+    return (await copilotModels()).auto;
+  }
 
   // Not awaited: an unanswered notification must not keep the command running.
-  if (!models.length) {
+  if (state === 'signedOut' || state === 'notInstalled') {
     void vscode.window
-      .showErrorMessage(
-        'Lean Shim: no GitHub Copilot language model is available. Make sure the GitHub Copilot Chat extension is installed and you are signed in.',
-        'Install Copilot Chat',
-      )
-      .then((choice) => {
-        if (choice) void vscode.commands.executeCommand('workbench.extensions.installExtension', 'github.copilot-chat');
-      });
-  } else {
+      .showInformationMessage(`${stateMessage(state)} Sign in, then try again.`, 'Sign in to Copilot')
+      .then((choice) => choice && void signInToCopilot());
+  } else if (state === 'noAuto') {
     try {
-      await logAvailableModels('Copilot\'s Auto model was not among the models VS Code offers to extensions.');
+      await logAvailableModels("Copilot's Auto model was not among the models VS Code offers to extensions.");
     } catch (e) {
       log.appendLine(`Could not list models: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -101,6 +136,8 @@ async function getModel(): Promise<vscode.LanguageModelChat | undefined> {
       "Lean Shim: Copilot's Auto model isn't available to extensions right now, so no request was sent. " +
         'The models VS Code does offer are listed in the Lean Shim output panel.',
     );
+  } else if (state === 'denied') {
+    void vscode.window.showWarningMessage(stateMessage(state));
   }
   return undefined;
 }

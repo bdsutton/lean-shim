@@ -40,6 +40,7 @@ class WorkspaceEdit {
 }
 
 let doc, editor, modelReplies, diagsFor, warnings, cmd, requestsSent = 0;
+const commandsRun = [];
 const fakeModel = (name, id, family) => ({
   name, id, vendor: 'copilot', family, version: '1', maxInputTokens: 1000,
   sendRequest: async () => {
@@ -66,7 +67,7 @@ const vscode = {
   LanguageModelChatMessage: { User: (t) => ({ content: t }) }, LanguageModelError: class extends Error {},
   extensions: { getExtension: () => ({ isActive: true, exports: { lean4EnabledFeatures: Promise.resolve({ clientProvider: { getActiveClient: () => leanClient } }) } }) },
   languages: { getDiagnostics: () => diagsFor(doc.text) },
-  lm: { selectChatModels: async () => offeredModels },
+  lm: { selectChatModels: async () => offeredModels, onDidChangeChatModels: () => ({ dispose() {} }) },
   workspace: {
     getConfiguration: () => ({ get: (k, d) => d }),
     asRelativePath: () => 'T.lean',
@@ -92,6 +93,8 @@ const vscode = {
     activeTextEditor: undefined,
   },
   commands: {
+    getCommands: async () => ['workbench.action.chat.triggerSetup'],
+    executeCommand: async (id) => { commandsRun.push(id); },
     registerCommand: () => ({ dispose() {} }),
     registerTextEditorCommand: (id, f) => { if (id === 'leanShim.suggest') cmd = f; return { dispose() {} }; },
   },
@@ -185,6 +188,18 @@ const within = (p, ms) => Promise.race([p.then(() => 'finished'), new Promise((r
   assert.strictEqual(requestsSent, 0);
   assert.strictEqual(doc.text, FILE);
   assert(warnings.some((w) => /Lean isn't ready yet/.test(w)), 'should ask the user to wait');
+
+  // 9. Copilot not signed in (offers no models): waits briefly, then asks to sign in; nothing sent
+  offeredModels = [];
+  setup(['```lean\nsimp\n```']);
+  requestsSent = 0;
+  const t9 = Date.now();
+  assert.strictEqual(await within(cmd(editor), 9000), 'finished');
+  assert(Date.now() - t9 >= 4500, 'should give Copilot a few seconds to come up first');
+  assert.strictEqual(requestsSent, 0);
+  assert.strictEqual(doc.text, FILE);
+  assert(warnings.some((w) => /GitHub Copilot, which isn't signed in yet/.test(w)));
+  offeredModels = [fakeModel('Auto', 'auto', 'auto')];
 
   console.log('flow tests passed');
   process.exit(0);

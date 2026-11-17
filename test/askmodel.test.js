@@ -32,7 +32,9 @@ const vscode = {
     showErrorMessage: (m) => { warnings.push(m); return Promise.resolve(undefined); },
     activeTextEditor: undefined,
   },
-  commands: { registerCommand: () => disposable, registerTextEditorCommand: () => disposable },
+  commands: { registerCommand: () => disposable, registerTextEditorCommand: () => disposable, getCommands: async () => [], executeCommand: async () => undefined },
+  lm: { selectChatModels: async () => [], onDidChangeChatModels: () => disposable },
+  extensions: { getExtension: () => undefined },
 };
 const origLoad = Module._load;
 Module._load = function (req, ...rest) { return req === 'vscode' ? vscode : origLoad.call(this, req, ...rest); };

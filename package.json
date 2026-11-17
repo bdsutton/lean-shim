@@ -42,6 +42,11 @@
         "command": "leanShim.showStartupTimeline",
         "title": "Show Lean Server Start-up Timeline",
         "category": "Lean Shim"
+      },
+      {
+        "command": "leanShim.copilotStatus",
+        "title": "Sign In to GitHub Copilot / Check Copilot Status",
+        "category": "Lean Shim"
       }
     ],
     "menus": {
@@ -140,6 +145,11 @@
           "default": 3,
           "minimum": 0,
           "description": "When you ask for a suggestion, wait up to this many seconds for Lean to be ready (its server running and the current file fully checked). If it isn't ready by then, nothing is sent and a message says what Lean is still doing."
+        },
+        "leanShim.autoSignInToCopilot": {
+          "type": "boolean",
+          "default": true,
+          "description": "If GitHub Copilot still isn't signed in about 20 seconds after the window opens, open Copilot's sign-in automatically. If off, a notification with a sign-in button is shown instead."
         }
       }
     }
@@ -149,7 +159,7 @@
     "watch": "tsc -watch -p ./",
     "package": "vsce package --allow-missing-repository --skip-license -o lean-shim.vsix",
     "vscode:prepublish": "npm run compile",
-    "test": "npm run compile && node test/format.test.js && node test/check.test.js && node test/singleline.test.js && node test/askmodel.test.js && node test/waitforlean.test.js && node test/flow.test.js && node test/startup-tracker.test.js && node test/startup.test.js && node test/ready.test.js"
+    "test": "npm run compile && node test/format.test.js && node test/check.test.js && node test/singleline.test.js && node test/askmodel.test.js && node test/waitforlean.test.js && node test/flow.test.js && node test/startup-tracker.test.js && node test/startup.test.js && node test/ready.test.js && node test/copilot.test.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

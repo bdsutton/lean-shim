@@ -128,7 +128,23 @@ time lake env lean examples/MathlibDemo.lean   # load the imports and check the 
   trimmed to its first goal. When you retry, Lean's errors on the rejected suggestion are also sent.
 * VS Code 1.90 or newer.
 
-The first time you run it, VS Code asks you to allow the extension to use Copilot. Choose **Allow**.
+### Signing in to GitHub Copilot
+
+Lean Shim needs GitHub Copilot to be signed in. In a Codespace Copilot usually signs in by itself with
+your GitHub account; Lean Shim does as much of the rest as VS Code allows:
+
+- When the window opens, it gives Copilot about 20 seconds to sign in. If it still isn't, Lean Shim opens
+  Copilot's sign-in automatically (or, with `leanShim.autoSignInToCopilot` off, shows a notification with
+  a **Sign in to Copilot** button). Signing in itself needs your click — VS Code doesn't let extensions
+  sign in for you.
+- While Copilot isn't signed in, the status bar button reads **Sign in to Copilot**; click it to sign in.
+  When Copilot is ready you get a notification and the button goes back to **✨ Fill Proof**.
+- If you ask for a suggestion while Copilot is signed out, Lean Shim waits a few seconds (in case Copilot
+  is still starting), then offers to sign in instead of failing.
+
+The first time a suggestion is requested, VS Code asks once whether Lean Shim may use Copilot. Choose
+**Allow**. (VS Code only asks this with a real request, so it can't be done ahead of time.) If you chose
+not to allow it, the status bar button shows a warning and explains how to change it.
 
 ## Where to put the cursor
 
@@ -162,6 +178,7 @@ lake update && lake exe cache get
 | `leanShim.modelTimeoutSeconds` | `120` | Cancel a model request that hasn't finished replying within this many seconds. |
 | `leanShim.logLeanStartup` | `true` | Log how long the Lean server takes to start and to process each file (see above). |
 | `leanShim.readyWaitSeconds` | `3` | How long to wait for Lean to be ready before showing a "please wait" message instead of starting. |
+| `leanShim.autoSignInToCopilot` | `true` | Open Copilot's sign-in automatically if it isn't signed in shortly after the window opens. |
 | `leanShim.verify` | `true` | Check each suggestion with Lean, retry automatically, and leave the file unchanged if nothing passes. |
 | `leanShim.maxAttempts` | `3` | Suggestions tried per press when verifying (1–10). |
 | `leanShim.verifyTimeoutSeconds` | `120` | How long to wait for Lean's check before inserting the suggestion as not verified. |
