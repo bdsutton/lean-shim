@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Download Mathlib's prebuilt files for only the Mathlib modules this project's .lean files import
-# (plus everything those modules import), instead of all of Mathlib.
+# Download Mathlib's prebuilt files, so Lean never has to compile Mathlib from source.
 #
-#   bash .devcontainer/fetch-mathlib.sh          # what the current files import
-#   bash .devcontainer/fetch-mathlib.sh --all    # all of Mathlib
+#   bash .devcontainer/fetch-mathlib.sh            # all of Mathlib (what the Codespace setup does)
+#   bash .devcontainer/fetch-mathlib.sh --imports  # only the Mathlib modules this project's .lean files
+#                                                  # import, plus everything those import
 #
-# Run it again after adding imports; files already downloaded are skipped. If any file has a plain
-# `import Mathlib`, everything is downloaded, since that import needs all of it. Without the prebuilt
-# files, opening a file makes Lean compile the missing modules from source, which can take a long time.
+# Files already downloaded are skipped. With --imports, a plain `import Mathlib` in any file still means
+# everything; run it again after adding imports. Without the prebuilt files, opening a file makes Lean
+# compile the missing modules from source, which can take a long time.
 set -euo pipefail
 trap 'echo "fetch-mathlib: FAILED at line $LINENO: $BASH_COMMAND" >&2' ERR
 cd "$(dirname "$0")/.."
@@ -16,8 +16,8 @@ export PATH="$HOME/.elan/bin:$PATH"
 # Make sure Mathlib's source (and its dependencies) are checked out; needed to check module names.
 lake env true >/dev/null
 
-if [ "${1:-}" = "--all" ]; then
-  echo "fetch-mathlib: downloading all of Mathlib…"
+if [ "${1:-}" != "--imports" ]; then
+  echo "fetch-mathlib: downloading all of Mathlib's prebuilt files…"
   exec lake exe cache get
 fi
 

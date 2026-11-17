@@ -165,24 +165,33 @@ not to allow it, the status bar button shows a warning and explains how to chang
 ## Mathlib
 
 This repository is also a Lean project that depends on [Mathlib](https://github.com/leanprover-community/mathlib4)
-(v4.35.0, pinned in `lakefile.toml`, `lake-manifest.json` and `lean-toolchain`). The Codespace downloads
-Mathlib's source (about 300 MB) and prebuilt files for **only the Mathlib modules the project's `.lean`
-files import**, plus everything those import — not all of Mathlib. For example, `examples/MathlibDemo.lean`
-imports real numbers, primes, finite sums and a few tactics, which need about 800 of Mathlib's ~8,600
-modules (9%).
+(v4.35.0, pinned in `lakefile.toml`, `lake-manifest.json` and `lean-toolchain`). The Codespace setup
+downloads Mathlib's source and **all** of its prebuilt files, so any `import Mathlib…` works right away
+without compiling Mathlib from source. Specific imports (as in `examples/MathlibDemo.lean`) still make
+files open faster, since Lean only loads what a file imports.
 
-- Use specific imports such as `import Mathlib.Basic.Real.Basic` or `import Mathlib.Tactic.Linarith`.
-  A plain `import Mathlib` in any file means all of Mathlib is downloaded (several GB).
-- **After adding an import, download its files** — otherwise opening the file makes Lean compile the
-  missing modules from source, which can take a long time:
+If prebuilt files are ever missing (for example after changing the Mathlib version), download them with:
 
-  ```bash
-  bash .devcontainer/fetch-mathlib.sh
-  ```
+```bash
+bash .devcontainer/fetch-mathlib.sh
+```
 
-  It looks at the imports of every `.lean` file in the project, skips files already downloaded, and warns
-  about imports that don't exist in this Mathlib version. `--all` downloads everything.
-- Copilot is told it can only use what the file's imports provide, since it can't add imports itself.
+It skips files already downloaded. `--imports` downloads only what the project's `.lean` files import.
+Copilot is told it can only use what the file's imports provide, since it can't add imports itself.
+
+### Fast Codespace creation with prebuilds
+
+The slow set-up work happens in steps that GitHub Codespaces **prebuilds** run ahead of time:
+
+- `onCreateCommand` → `.devcontainer/setup.sh`: installs elan (Lean's version manager).
+- `updateContentCommand` → `.devcontainer/update-content.sh`: downloads the Lean toolchain and all of
+  Mathlib's prebuilt files, then builds Lean Shim. Rerun whenever the prebuild is refreshed for new commits.
+- `postAttachCommand` → `.devcontainer/install-extension.sh`: only installs the already-built extension
+  when the Codespace opens.
+
+With a prebuild configured for the branch (repository **Settings → Codespaces → Set up prebuild**), a
+new Codespace starts from the finished result and skips the first two steps. Without one, they run when
+the Codespace is created.
 
 `lake`, `lean` and `elan` are on the PATH in the Codespace's terminals (`~/.elan/bin`).
 
