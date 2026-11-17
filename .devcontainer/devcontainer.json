@@ -14,7 +14,8 @@
       ],
       "settings": {
         "editor.inlineSuggest.enabled": false,
-        "workbench.secondarySideBar.defaultVisibility": "hidden"
+        "workbench.secondarySideBar.defaultVisibility": "hidden",
+        "editor.minimap.enabled": false
       }
     }
   },
