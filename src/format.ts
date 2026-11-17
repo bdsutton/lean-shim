@@ -79,6 +79,8 @@ export interface PromptInput {
   /** Suggestions already rejected by the user at this spot. */
   rejected: string[];
   extraInstructions: string;
+  /** The accepted proof will be rewritten on one line, so it must be expressible that way. */
+  singleLine?: boolean;
 }
 
 /** Trim the file to a window around the cursor, always keeping the header (imports/opens). */
@@ -123,6 +125,15 @@ export function buildPrompt(input: PromptInput): string {
     '- Only use lemmas you are confident exist in Lean 4 / current Mathlib.',
     '- Put the code in a single ```lean code block.',
   );
+  if (input.singleLine) {
+    out.push(
+      '- The proof will be rewritten on a single line (tactics joined with `;`), so it must not use `calc`',
+      '  (its steps need separate lines) or `/- ... -/` comments. Instead of a `calc` chain, use a one-line',
+      '  form such as `h1.trans h2`, `rw [h1, h2]`, or `Trans.trans (show a = b by ...) (show b ≤ c by ...)`,',
+      '  or a tactic that closes the whole chain (`omega`, `linarith`, `nlinarith [...]`, `positivity`,',
+      '  `gcongr`, `norm_num`, `simp`). You may still write the tactics on separate lines as usual.',
+    );
+  }
   if (input.extraInstructions.trim()) {
     out.push('', 'Additional instructions from the user:', input.extraInstructions.trim());
   }

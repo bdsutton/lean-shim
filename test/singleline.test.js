@@ -1,5 +1,5 @@
 const assert = require('node:assert');
-const { toSingleLine } = require('../out/singleline');
+const { toSingleLine, singleLineObstacle } = require('../out/singleline');
 const t = (input, expected) => assert.strictEqual(toSingleLine(input), expected, JSON.stringify(input));
 
 t('simp', 'simp');
@@ -20,4 +20,10 @@ t('exact "a -- b"', 'exact "a -- b"'); // `--` inside a string is not a comment
 assert.strictEqual(toSingleLine('calc a = b := h1\n  _ = c := h2'), undefined);
 assert.strictEqual(toSingleLine('/- note -/\nsimp'), undefined);
 assert.strictEqual(toSingleLine('\n\n'), undefined);
+// singleLineObstacle
+assert.match(singleLineObstacle('calc a = b := h1\n  _ = c := h2'), /uses `calc`/);
+assert.match(singleLineObstacle('/- note -/\nsimp'), /comment/);
+assert.match(singleLineObstacle(''), /empty/);
+assert.strictEqual(singleLineObstacle('intro h\nexact h'), undefined);
+assert.strictEqual(singleLineObstacle('exact calcLemma h -- calc in a comment'), undefined);
 console.log('singleline tests passed');

@@ -41,10 +41,12 @@ class WorkspaceEdit {
 
 let doc, editor, modelReplies, diagsFor, warnings, cmd, requestsSent = 0;
 const commandsRun = [];
+const prompts = [];
 const fakeModel = (name, id, family) => ({
   name, id, vendor: 'copilot', family, version: '1', maxInputTokens: 1000,
-  sendRequest: async () => {
+  sendRequest: async (messages) => {
     requestsSent++;
+    prompts.push(messages.map((m) => m.content).join('\n'));
     const r = modelReplies.shift() ?? 'exact bad';
     return { stream: (async function* () { yield { value: r }; })() };
   },
@@ -148,14 +150,19 @@ const within = (p, ms) => Promise.race([p.then(() => 'finished'), new Promise((r
   assert.strictEqual(await within(cmd(editor), 5000), 'finished');
   assert.strictEqual(doc.text, 'theorem t (n : Nat) : n + 0 = n := by\n  (have h : 0 + n = n := by simp); exact h\n\ntheorem u : True := trivial\n');
 
-  // 5. Lean rejects the one-line form -> the verified multi-line proof is restored
+  // 5. Lean rejects the one-line form -> not accepted on several lines: rejected and retried;
+  //    when no attempt works on one line, the file is left unchanged
+  prompts.length = 0;
   setup(['```lean\nhave h : 0 + n = n := by\n  simp\nexact h\n```']);
   diagsFor = (text) =>
     /exact h/.test(text) && !/; exact h/.test(text)
       ? []
       : [{ severity: 0, message: 'boom', range: new Range(new Position(1, 2), new Position(1, 5)) }];
   assert.strictEqual(await within(cmd(editor), 5000), 'finished');
-  assert.strictEqual(doc.text, 'theorem t (n : Nat) : n + 0 = n := by\n  have h : 0 + n = n := by\n    simp\n  exact h\n\ntheorem u : True := trivial\n');
+  assert.strictEqual(doc.text, FILE);
+  assert(warnings.some((w) => /none of the 3 suggestion/.test(w)));
+  assert.match(prompts[1], /checked on several lines, but its one-line form did not/);
+  assert.match(prompts[0], /must not use `calc`/);
 
   // 6. Auto is always the model used
   {
@@ -200,6 +207,21 @@ const within = (p, ms) => Promise.race([p.then(() => 'finished'), new Promise((r
   assert.strictEqual(doc.text, FILE);
   assert(warnings.some((w) => /GitHub Copilot, which isn't signed in yet/.test(w)));
   offeredModels = [fakeModel('Auto', 'auto', 'auto')];
+
+  // 10. A suggestion using calc is rejected without being inserted; the next one is accepted on one line
+  prompts.length = 0;
+  requestsSent = 0;
+  setup(['```lean\ncalc n + 0 = n := by simp\n```', '```lean\nhave h : 0 + n = n := by\n  simp\nexact h\n```']);
+  diagsFor = (text) => (/exact h/.test(text) ? [] : [{ severity: 0, message: 'unsolved goals\nn : Nat\n⊢ n + 0 = n', range: new Range(new Position(0, 36), new Position(0, 38)) }]);
+  let sawCalcInFile = false;
+  const origApply = vscode.workspace.applyEdit;
+  vscode.workspace.applyEdit = async (e) => { const r = await origApply(e); if (/calc/.test(doc.text)) sawCalcInFile = true; return r; };
+  assert.strictEqual(await within(cmd(editor), 5000), 'finished');
+  vscode.workspace.applyEdit = origApply;
+  assert.strictEqual(requestsSent, 2);
+  assert(!sawCalcInFile, 'the calc proof must never be inserted');
+  assert.match(prompts[1], /must fit on one line, but it uses `calc`/);
+  assert.strictEqual(doc.text, 'theorem t (n : Nat) : n + 0 = n := by\n  (have h : 0 + n = n := by simp); exact h\n\ntheorem u : True := trivial\n');
 
   console.log('flow tests passed');
   process.exit(0);

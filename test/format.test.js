@@ -39,4 +39,8 @@ for (const l of ['  exact foo', 'theorems', '-- theorem', '  have h : x := by'])
 const before = Array.from({length: 1000}, (_, i) => `line${i}`).join('\n') + '\n  ';
 const q = buildPrompt({ before, after: '\nend', contextLines: 100, diagnostics: [], rejected: [], extraInstructions: '' });
 assert(q.includes('line0') && q.includes('line999') && !q.includes('line500') && q.includes(CURSOR_MARK));
+// singleLine prompt rule
+const pl = buildPrompt({ before: 'x', after: '', contextLines: 400, diagnostics: [], rejected: [], extraInstructions: '', singleLine: true });
+assert(/must not use `calc`/.test(pl) && /single line/.test(pl));
+assert(!/must not use `calc`/.test(buildPrompt({ before: 'x', after: '', contextLines: 400, diagnostics: [], rejected: [], extraInstructions: '' })));
 console.log('all tests passed');

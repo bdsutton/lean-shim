@@ -31,13 +31,23 @@ theorem and_swap (p q : Prop) (hp : p) (hq : q) : p ∧ q := by
 
 Steps that take a whole block of tactics (bullets `·`, `case … =>`, `next =>`, `… := by`, `try`,
 `all_goals`, `first | …` and similar) are wrapped in parentheses when more steps follow, so the block
-doesn't absorb them. The one-line form is re-checked with Lean. If the proof can't be put on one line
-(for example a `calc` block) or the one-line form doesn't check, the verified multi-line proof is kept.
+doesn't absorb them. The one-line form is re-checked with Lean.
+
+Everything Lean Shim inserts is on one line, or nothing is inserted:
+
+- Copilot is told the proof will be put on one line, so it must not use `calc` (whose steps need separate
+  lines) or `/- … -/` comments, and is given one-line alternatives (`h1.trans h2`, `rw [h1, h2]`,
+  `Trans.trans (show … by …) (show … by …)`, or a closing tactic such as `omega`, `linarith`,
+  `nlinarith`, `positivity`, `gcongr`).
+- A suggestion that still uses `calc` (or a block comment) is rejected without being inserted, and the
+  next attempt is told why.
+- A suggestion that checks on several lines but not on one is also rejected and retried.
+- If no attempt works on one line, the file is left unchanged.
 
 This is controlled by `leanShim.acceptedProofFormat`:
 
-- `singleLine` (default): rewrite on one line as described above.
-- `asGenerated`: keep the proof exactly as the model wrote it.
+- `singleLine` (default): one line only, as described above.
+- `asGenerated`: insert the proof exactly as the model wrote it (any number of lines, `calc` allowed).
 
 ## Waits for Lean to be ready
 

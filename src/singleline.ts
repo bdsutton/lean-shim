@@ -84,6 +84,18 @@ function renderStep(node: Node): string {
   return [text, ...children.map(renderStep)].join(' ');
 }
 
+/** Why a proof can't be written on one line, or undefined if it can. */
+export function singleLineObstacle(proof: string): string | undefined {
+  const lines = dedent(proof.replace(/\r\n/g, '\n'))
+    .split('\n')
+    .map((l) => stripLineComment(l).replace(/\s+$/, ''))
+    .filter((l) => l.trim() !== '');
+  if (!lines.length) return 'it is empty';
+  if (lines.some((l) => /(^|[^\w'.])calc($|[^\w'])/.test(l))) return 'it uses `calc`, whose steps must be on separate lines';
+  if (lines.some((l) => l.includes('/-'))) return 'it contains a `/- ... -/` comment';
+  return undefined;
+}
+
 export function toSingleLine(proof: string): string | undefined {
   const lines = dedent(proof.replace(/\r\n/g, '\n'))
     .split('\n')

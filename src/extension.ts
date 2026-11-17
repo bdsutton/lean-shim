@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { Baseline, describe, judge, makeBaseline, touches, usesSorry } from './check';
-import { toSingleLine } from './singleline';
+import { singleLineObstacle, toSingleLine } from './singleline';
 import { CopilotState, copilotModels, getCopilotState, signInToCopilot, stateMessage, waitForAuto, watchCopilot } from './copilot';
 import { checkLeanReady, Readiness, trackLeanProgress } from './ready';
 import { watchLeanStartup } from './startup';
@@ -412,6 +412,8 @@ async function runSuggest(editor: vscode.TextEditor) {
   let note = '';
   let attemptsMade = 0;
   let lastAttemptText: string | undefined;
+  let lastProof: string | undefined;
+  const singleLine = cfg.get<string>('acceptedProofFormat', 'singleLine') === 'singleLine';
   statusItem.text = '$(loading~spin) Filling proof…';
 
   logSection(
@@ -496,6 +498,7 @@ async function runSuggest(editor: vscode.TextEditor) {
       };
 
       for (let attempt = 1; attempt <= (canVerify ? maxAttempts : 1); attempt++) {
+        // (singleLine: every accepted proof is written on one line, or nothing is inserted.)
         attemptsMade = attempt;
         if (token.isCancellationRequested) {
           outcome = 'cancelled';
@@ -512,6 +515,7 @@ async function runSuggest(editor: vscode.TextEditor) {
         const after = full.slice(doc.offsetAt(target.end));
 
         const prompt = buildPrompt({
+          singleLine,
           before,
           after,
           contextLines: cfg.get<number>('contextLines', 400),
@@ -544,6 +548,14 @@ async function runSuggest(editor: vscode.TextEditor) {
           problems = [`- ${why}`];
           continue;
         }
+        const obstacle = singleLine ? singleLineObstacle(proof) : undefined;
+        if (obstacle) {
+          logSection('REJECTED WITHOUT INSERTING');
+          log.appendLine(`The proof must fit on one line, but ${obstacle}.`);
+          history.push(proof);
+          problems = [`- the proof must fit on one line, but ${obstacle}; write it without that`];
+          continue;
+        }
 
         // Re-anchor once more: the buffer may have been edited while the model was responding.
         anchored = reanchor();
@@ -553,7 +565,8 @@ async function runSuggest(editor: vscode.TextEditor) {
         }
         target = anchored;
         const linePrefix = doc.lineAt(target.start.line).text.slice(0, target.start.character);
-        const text = layoutInsertion(proof, linePrefix, eol, tabSize);
+        const insertProof = singleLine && !canVerify ? (toSingleLine(proof) ?? proof) : proof;
+        const text = layoutInsertion(insertProof, linePrefix, eol, tabSize);
         const range = await replaceOwnText(doc, target, text);
         if (!range) {
           vscode.window.showErrorMessage('Lean Shim: could not apply the edit.');
@@ -563,6 +576,7 @@ async function runSuggest(editor: vscode.TextEditor) {
         target = range;
         expectedVersion = doc.version;
         lastAttemptText = text;
+        lastProof = proof;
         history.push(proof);
         logSection('INSERTED');
         log.appendLine(text.replace(/\r\n/g, '\n'));
@@ -626,14 +640,30 @@ async function runSuggest(editor: vscode.TextEditor) {
         if (verdict.ok) {
           outcome = 'verified';
           if (verdict.tolerated) note = `${verdict.tolerated} unrelated error(s) already in this declaration were ignored`;
-          const format = cfg.get<string>('acceptedProofFormat', 'singleLine');
-          if (format === 'singleLine') {
+          if (singleLine) {
             const enc = await step('rewriting the proof on one line and re-checking it', () =>
               storeSingleLine(doc, target, proof, linePrefix, eol, tabSize, baseline!, timeoutMs, token),
             );
             target = enc.range;
             expectedVersion = doc.version;
-            if (enc.note) note = note ? `${note}; ${enc.note}` : enc.note;
+            if (token.isCancellationRequested) {
+              outcome = 'cancelled';
+              lastAttemptText = doc.getText(target);
+              return;
+            }
+            if (!enc.oneLine) {
+              // Correct on several lines but not on one: not accepted. Retry, saying why.
+              outcome = 'failed';
+              note = '';
+              lastAttemptText = doc.getText(target); // the multi-line proof, restored in place
+              problems = [
+                '- the proof checked on several lines, but its one-line form did not, so it was rejected; ' +
+                  'give a proof that also works when its tactics are joined with `;` on one line',
+                ...(enc.problems ?? []),
+              ];
+              log.appendLine('One-line form rejected; trying again.');
+              continue;
+            }
           }
           return;
         }
@@ -707,18 +737,24 @@ async function runSuggest(editor: vscode.TextEditor) {
         return;
       }
       // Not awaited: an unanswered notification must not keep the command (and the status bar) busy.
-      const attemptText = lastAttemptText;
+      // With the one-line format, "insert anyway" inserts the one-line form (offered only if there is one).
+      let attemptText: string | undefined = lastAttemptText;
+      if (singleLine) {
+        const one = lastProof !== undefined ? toSingleLine(lastProof) : undefined;
+        const prefix = doc.lineAt(target.start.line).text.slice(0, target.start.character);
+        attemptText = one !== undefined ? layoutInsertion(one, prefix, eol, tabSize) : undefined;
+      }
+      const buttons = attemptText !== undefined ? ['Insert last attempt anyway', 'Show log'] : ['Show log'];
       void vscode.window
         .showWarningMessage(
           `Lean Shim: none of the ${attemptsMade} suggestion(s) passed Lean's check, so the file was left unchanged. ` +
             'Press again to keep trying (rejected attempts are remembered).',
-          'Insert last attempt anyway',
-          'Show log',
+          ...buttons,
         )
         .then(async (choice) => {
           if (choice === 'Show log') log.show(true);
           // Only if no new request has started and the file is still exactly as we left it.
-          if (choice === 'Insert last attempt anyway' && !busy && isRegenerationState(doc)) {
+          if (choice === 'Insert last attempt anyway' && attemptText !== undefined && !busy && isRegenerationState(doc)) {
             const range = await replaceOwnText(doc, last!.range, attemptText);
             if (range) {
               target = range;
@@ -746,20 +782,21 @@ async function storeSingleLine(
   baseline: Baseline,
   timeoutMs: number,
   token: vscode.CancellationToken,
-): Promise<{ range: vscode.Range; note?: string }> {
+): Promise<{ range: vscode.Range; note?: string; oneLine: boolean; problems?: string[] }> {
   const plainText = doc.getText(target);
   const one = toSingleLine(proof);
   if (one === undefined) {
     log.appendLine('This proof cannot be written on one line (e.g. it uses calc); kept as generated.');
-    return { range: target, note: "kept on several lines (this proof can't be written on one line)" };
+    return { range: target, oneLine: false, problems: [`- ${singleLineObstacle(proof) ?? 'it could not be written on one line'}`] };
   }
   const oneText = layoutInsertion(one, linePrefix, eol, tabSize);
-  if (oneText === plainText || token.isCancellationRequested) return { range: target };
+  if (oneText === plainText) return { range: target, oneLine: true };
+  if (token.isCancellationRequested) return { range: target, oneLine: false };
 
   const startOff = doc.offsetAt(target.start);
   const range = await replaceOwnText(doc, target, oneText);
   if (!range || doc.getText(range) !== oneText) {
-    return { range: findText(doc, plainText, startOff) ?? target, note: 'kept on several lines (could not rewrite it)' };
+    return { range: findText(doc, plainText, startOff) ?? target, oneLine: false, problems: ['- it could not be rewritten in place'] };
   }
   logSection('REWRITTEN ON ONE LINE');
   log.appendLine(oneText.replace(/\r\n/g, '\n'));
@@ -770,17 +807,20 @@ async function storeSingleLine(
     w === 'done' && !doc.isClosed && here
       ? judge(currentDiags(doc), declarationRegion(doc, here), span(here), baseline)
       : undefined;
-  if (verdict?.ok && here) return { range: here, note: 'written on one line' };
+  if (verdict?.ok && here) return { range: here, oneLine: true, note: 'written on one line' };
 
   // Restore the verified multi-line proof.
   logSection('ONE-LINE RE-CHECK FAILED — RESTORED THE MULTI-LINE PROOF');
   if (verdict) log.appendLine(verdict.problems.map((d) => describe(d, doc.lineAt(d.range.start.line).text)).join('\n'));
   else log.appendLine(`Lean did not confirm the one-line form (${w}).`);
+  const problems = verdict
+    ? verdict.problems.map((d) => describe(d, doc.lineAt(d.range.start.line).text))
+    : [`- Lean did not confirm the one-line form (${w})`];
   if (here) {
     const back = await replaceOwnText(doc, here, plainText);
-    if (back) return { range: back, note: 'kept on several lines (the one-line form did not check)' };
+    if (back) return { range: back, oneLine: false, problems };
   }
-  return { range: findText(doc, plainText, startOff) ?? target, note: 'kept on several lines (the one-line form did not check)' };
+  return { range: findText(doc, plainText, startOff) ?? target, oneLine: false, problems };
 }
 
 /** Range of `text` in the document nearest `nearOff`, or undefined if absent. */
