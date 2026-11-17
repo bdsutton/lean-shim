@@ -11,7 +11,10 @@
         "leanprover.lean4",
         "GitHub.copilot",
         "GitHub.copilot-chat"
-      ]
+      ],
+      "settings": {
+        "editor.inlineSuggest.enabled": false
+      }
     }
   },
   "postCreateCommand": "bash .devcontainer/setup.sh",

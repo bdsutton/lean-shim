@@ -212,6 +212,11 @@ bash .devcontainer/install-extension.sh
 
 Then run **Developer: Reload Window**.
 
+The Codespace also turns off inline suggestions (`"editor.inlineSuggest.enabled": false` in
+`.devcontainer/devcontainer.json`), so Copilot's grey "ghost text" completions don't appear while you type.
+Lean Shim doesn't use them. To turn them back on, remove that line, or override it in the Settings editor
+under the **Remote [Codespaces]** tab.
+
 The built `lean-shim.vsix` is not committed (`*.vsix` is in `.gitignore`), so pulls never conflict
 on it. Please don't force-add it.
 
