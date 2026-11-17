@@ -43,4 +43,5 @@ assert(q.includes('line0') && q.includes('line999') && !q.includes('line500') &&
 const pl = buildPrompt({ before: 'x', after: '', contextLines: 400, diagnostics: [], rejected: [], extraInstructions: '', singleLine: true });
 assert(/must not use `calc`/.test(pl) && /single line/.test(pl));
 assert(!/must not use `calc`/.test(buildPrompt({ before: 'x', after: '', contextLines: 400, diagnostics: [], rejected: [], extraInstructions: '' })));
+assert(/available through this file's imports/.test(buildPrompt({ before: 'x', after: '', contextLines: 400, diagnostics: [], rejected: [], extraInstructions: '' })));
 console.log('all tests passed');

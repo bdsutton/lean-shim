@@ -1,4 +1,12 @@
-import Mathlib
+-- Specific imports instead of `import Mathlib`, so the Codespace only downloads the part of Mathlib
+-- these need (about 9% of it). After adding an import, run: bash .devcontainer/fetch-mathlib.sh
+import Mathlib.Basic.Real.Basic
+import Mathlib.Data.Nat.Prime.Infinite
+import Mathlib.Algebra.BigOperators.Intervals
+import Mathlib.Tactic.Linarith
+import Mathlib.Tactic.Positivity
+import Mathlib.Tactic.NormNum
+import Mathlib.Tactic.Ring
 
 -- Try it: put the cursor on an empty indented line below and press Ctrl+Alt+L
 -- (or click the ✨ button). Press again for a different suggestion.

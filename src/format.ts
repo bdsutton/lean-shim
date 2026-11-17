@@ -122,7 +122,9 @@ export function buildPrompt(input: PromptInput): string {
     '  (for example, if the marker follows `:= by`, do not write `by` again).',
     '- Do not use `sorry`, `admit`, or `native_decide` unless the user\'s file already relies on them.',
     '- Use tactic steps one per line when inside a `by` block; use consistent relative indentation.',
-    '- Only use lemmas you are confident exist in Lean 4 / current Mathlib.',
+    '- Only use lemmas, definitions and tactics you are confident exist in Lean 4 / current Mathlib AND are',
+    "  available through this file's imports (shown at the top of the file). Imports can't be added, so",
+    '  anything from a module that is not imported (directly or indirectly) will fail.',
     '- Put the code in a single ```lean code block.',
   );
   if (input.singleLine) {

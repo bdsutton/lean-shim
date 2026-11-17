@@ -7,7 +7,8 @@ export PATH="$HOME/.elan/bin:$PATH"
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
   grep -qs '.elan/bin' "$rc" || echo 'export PATH="$HOME/.elan/bin:$PATH"' >> "$rc"
 done
-# Fetch Mathlib and download its prebuilt files (building it from source would take hours)
-lake exe cache get
+# Fetch Mathlib and download prebuilt files for just the Mathlib modules the project imports
+# (building them from source would take hours). Run the same script again after adding imports.
+bash .devcontainer/fetch-mathlib.sh
 # Build the extension now, during creation, so the first start only has to install it
 bash .devcontainer/install-extension.sh --build-only

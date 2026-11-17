@@ -165,9 +165,24 @@ not to allow it, the status bar button shows a warning and explains how to chang
 ## Mathlib
 
 This repository is also a Lean project that depends on [Mathlib](https://github.com/leanprover-community/mathlib4)
-(v4.35.0, pinned in `lakefile.toml`, `lake-manifest.json` and `lean-toolchain`). When a Codespace is
-created, it downloads Mathlib's prebuilt files with `lake exe cache get`. This takes a few minutes and
-about 5 GB of disk. Any `.lean` file in the repo can then `import Mathlib`; try `examples/MathlibDemo.lean`.
+(v4.35.0, pinned in `lakefile.toml`, `lake-manifest.json` and `lean-toolchain`). The Codespace downloads
+Mathlib's source (about 300 MB) and prebuilt files for **only the Mathlib modules the project's `.lean`
+files import**, plus everything those import — not all of Mathlib. For example, `examples/MathlibDemo.lean`
+imports real numbers, primes, finite sums and a few tactics, which need about 800 of Mathlib's ~8,600
+modules (9%).
+
+- Use specific imports such as `import Mathlib.Basic.Real.Basic` or `import Mathlib.Tactic.Linarith`.
+  A plain `import Mathlib` in any file means all of Mathlib is downloaded (several GB).
+- **After adding an import, download its files** — otherwise opening the file makes Lean compile the
+  missing modules from source, which can take a long time:
+
+  ```bash
+  bash .devcontainer/fetch-mathlib.sh
+  ```
+
+  It looks at the imports of every `.lean` file in the project, skips files already downloaded, and warns
+  about imports that don't exist in this Mathlib version. `--all` downloads everything.
+- Copilot is told it can only use what the file's imports provide, since it can't add imports itself.
 
 `lake`, `lean` and `elan` are on the PATH in the Codespace's terminals (`~/.elan/bin`).
 
@@ -177,8 +192,11 @@ To move to a newer Mathlib, change `rev` in `lakefile.toml` and the version in `
 match, then run:
 
 ```bash
-lake update && lake exe cache get
+MATHLIB_NO_CACHE_ON_UPDATE=1 lake update && bash .devcontainer/fetch-mathlib.sh
 ```
+
+(`MATHLIB_NO_CACHE_ON_UPDATE=1` stops `lake update` from downloading all of Mathlib's prebuilt files,
+which it otherwise does automatically.)
 
 ## Settings
 
