@@ -13,7 +13,8 @@
         "GitHub.copilot-chat"
       ],
       "settings": {
-        "editor.inlineSuggest.enabled": false
+        "editor.inlineSuggest.enabled": false,
+        "workbench.secondarySideBar.defaultVisibility": "hidden"
       }
     }
   },

@@ -101,7 +101,7 @@ export function stateMessage(state: CopilotState): string {
  * Sign in to Copilot interactively: open its sign-in flow, then wait (up to `waitMs`) for its Auto model
  * to become available. Reports the outcome with a notification.
  */
-export async function signInToCopilot(waitMs = 5 * 60 * 1000): Promise<boolean> {
+export async function signInToCopilot(waitMs = 5 * 60 * 1000, closeChatWhenDone = false): Promise<boolean> {
   const opened = await openCopilotSignIn();
   if (!opened) {
     void vscode.window.showWarningMessage(
@@ -110,6 +110,10 @@ export async function signInToCopilot(waitMs = 5 * 60 * 1000): Promise<boolean> 
     );
   }
   const auto = await waitForAuto(opened ? waitMs : 30 * 1000);
+  if (auto && opened && closeChatWhenDone) {
+    // Copilot's sign-in takes place in the Chat view, in the secondary side bar; put it away again.
+    await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar').then(undefined, () => undefined);
+  }
   if (auto) {
     void vscode.window.showInformationMessage('Lean Shim: GitHub Copilot is ready. Press Ctrl+Alt+L (or ✨) to get a suggestion.');
   }
@@ -149,10 +153,10 @@ export function watchCopilot(context: vscode.ExtensionContext, opts: CopilotWatc
     opts.log(`[${new Date().toLocaleTimeString()}] ${stateMessage(state)}`);
     if (opts.autoSignIn) {
       opts.log('Opening GitHub Copilot sign-in (turn this off with leanShim.autoSignInToCopilot).');
-      await signInToCopilot();
+      await signInToCopilot(undefined, true);
     } else {
       const choice = await vscode.window.showInformationMessage(stateMessage(state), 'Sign in to Copilot');
-      if (choice) await signInToCopilot();
+      if (choice) await signInToCopilot(undefined, true);
     }
     refresh();
   })().catch(() => undefined);

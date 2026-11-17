@@ -78,7 +78,8 @@ const reset = () => { models = []; copilotInstalled = true; availableCommands = 
   states = [];
   const w2 = C.watchCopilot(ctx(true), { startupWaitMs: 200, autoSignIn: true, onState: (s) => states.push(s), log() {} });
   await sleep(800);
-  assert.deepStrictEqual(commandsRun, ['workbench.action.chat.triggerSetup']);
+  // sign-in opened at start-up, then the Chat side bar it opened is closed again
+  assert.deepStrictEqual(commandsRun, ['workbench.action.chat.triggerSetup', 'workbench.action.closeAuxiliaryBar']);
   assert(infoMessages.some((m) => /GitHub Copilot is ready/.test(m)));
   assert.strictEqual(states[states.length - 1], 'ready');
   assert(states.includes('signedOut'));
@@ -90,6 +91,12 @@ const reset = () => { models = []; copilotInstalled = true; availableCommands = 
   const w3 = C.watchCopilot(ctx(true), { startupWaitMs: 100, autoSignIn: false, onState() {}, log() {} });
   await sleep(600);
   assert(infoMessages.some((m) => /isn't signed in yet/.test(m)));
+  assert.deepStrictEqual(commandsRun, ['workbench.action.chat.triggerSetup', 'workbench.action.closeAuxiliaryBar']);
+
+  // signing in later from the status bar (not at start-up) leaves the Chat view alone
+  reset(); availableCommands = ['workbench.action.chat.triggerSetup'];
+  onCommand = (id) => { if (id === 'workbench.action.chat.triggerSetup') setTimeout(() => { models = [M('Auto')]; modelsChanged.fire(); }, 50); };
+  assert.strictEqual(await C.signInToCopilot(2000), true);
   assert.deepStrictEqual(commandsRun, ['workbench.action.chat.triggerSetup']);
   w3.dispose();
 
