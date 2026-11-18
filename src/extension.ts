@@ -55,6 +55,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('leanShim.copilotStatus', copilotStatusAction),
     watchCopilot(context, {
+      installWaitMs: 3 * 60 * 1000,
       startupWaitMs: 20000,
       autoSignIn: vscode.workspace.getConfiguration('leanShim').get<boolean>('autoSignInToCopilot', true),
       onState: (s) => {

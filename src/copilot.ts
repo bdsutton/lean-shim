@@ -61,6 +61,23 @@ export function waitForAuto(timeoutMs: number): Promise<vscode.LanguageModelChat
   });
 }
 
+/** Resolves true as soon as the extension is installed, or false after `timeoutMs`. */
+export function waitForExtension(id: string, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (ok: boolean) => {
+      if (done) return;
+      done = true;
+      sub.dispose();
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    const sub = vscode.extensions.onDidChange(() => vscode.extensions.getExtension(id) && finish(true));
+    const timer = setTimeout(() => finish(!!vscode.extensions.getExtension(id)), timeoutMs);
+    if (vscode.extensions.getExtension(id)) finish(true);
+  });
+}
+
 /** Open Copilot's sign-in / set-up flow. Returns false if no such command exists in this VS Code. */
 export async function openCopilotSignIn(): Promise<boolean> {
   if (!vscode.extensions.getExtension(COPILOT_CHAT_ID)) {
@@ -121,7 +138,12 @@ export async function signInToCopilot(waitMs = 5 * 60 * 1000, closeChatWhenDone 
 }
 
 export interface CopilotWatchOptions {
-  /** How long to give Copilot to come up by itself after the window opens before acting. */
+  /**
+   * How long to wait for VS Code to finish installing the Copilot Chat extension when the window opens
+   * (in a new Codespace it installs the extensions listed in devcontainer.json after the window opens).
+   */
+  installWaitMs: number;
+  /** How long to give Copilot to come up by itself (once installed) before acting. */
   startupWaitMs: number;
   /** Open Copilot's sign-in flow automatically if it still isn't signed in after that. */
   autoSignIn: boolean;
@@ -140,11 +162,19 @@ export function watchCopilot(context: vscode.ExtensionContext, opts: CopilotWatc
       (s) => !disposed && opts.onState(s),
       () => undefined,
     );
-  const subs: vscode.Disposable[] = [vscode.lm.onDidChangeChatModels(refresh)];
+  const subs: vscode.Disposable[] = [vscode.lm.onDidChangeChatModels(refresh), vscode.extensions.onDidChange(refresh)];
   if (context.languageModelAccessInformation?.onDidChange) subs.push(context.languageModelAccessInformation.onDidChange(refresh));
   refresh();
 
   void (async () => {
+    // Copilot Chat may still be being installed: don't conclude it's missing until VS Code is done.
+    if (!vscode.extensions.getExtension(COPILOT_CHAT_ID)) {
+      opts.log(`[${new Date().toLocaleTimeString()}] Waiting for VS Code to finish installing GitHub Copilot Chat…`);
+      const installed = await waitForExtension(COPILOT_CHAT_ID, opts.installWaitMs);
+      if (disposed) return;
+      if (installed) opts.log(`[${new Date().toLocaleTimeString()}] GitHub Copilot Chat is installed.`);
+      refresh();
+    }
     if (await waitForAuto(opts.startupWaitMs)) return refresh();
     if (disposed) return;
     const state = await getCopilotState(context);

@@ -67,7 +67,7 @@ const vscode = {
   StatusBarAlignment: { Right: 2 }, ProgressLocation: { Notification: 15 }, TextEditorRevealType: { InCenterIfOutsideViewport: 2 },
   ThemeColor: class {}, ConfigurationTarget: { Global: 1 },
   LanguageModelChatMessage: { User: (t) => ({ content: t }) }, LanguageModelError: class extends Error {},
-  extensions: { getExtension: () => ({ isActive: true, exports: { lean4EnabledFeatures: Promise.resolve({ clientProvider: { getActiveClient: () => leanClient } }) } }) },
+  extensions: { onDidChange: () => ({ dispose() {} }), getExtension: () => ({ isActive: true, exports: { lean4EnabledFeatures: Promise.resolve({ clientProvider: { getActiveClient: () => leanClient } }) } }) },
   languages: { getDiagnostics: () => diagsFor(doc.text) },
   lm: { selectChatModels: async () => offeredModels, onDidChangeChatModels: () => ({ dispose() {} }) },
   workspace: {

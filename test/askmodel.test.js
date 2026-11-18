@@ -34,7 +34,7 @@ const vscode = {
   },
   commands: { registerCommand: () => disposable, registerTextEditorCommand: () => disposable, getCommands: async () => [], executeCommand: async () => undefined },
   lm: { selectChatModels: async () => [], onDidChangeChatModels: () => disposable },
-  extensions: { getExtension: () => undefined },
+  extensions: { getExtension: () => undefined, onDidChange: () => disposable },
 };
 const origLoad = Module._load;
 Module._load = function (req, ...rest) { return req === 'vscode' ? vscode : origLoad.call(this, req, ...rest); };

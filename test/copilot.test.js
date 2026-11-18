@@ -7,10 +7,11 @@ class Emitter {
   fire(v) { this.l.forEach((f) => f(v)); }
 }
 const modelsChanged = new Emitter();
+const extensionsChanged = new Emitter();
 let models = [], copilotInstalled = true, availableCommands = [], commandsRun = [], infoMessages = [], onCommand = () => {}, clickButton = false;
 const vscode = {
   lm: { selectChatModels: async () => models, onDidChangeChatModels: modelsChanged.event },
-  extensions: { getExtension: (id) => (id === 'github.copilot-chat' && copilotInstalled ? {} : undefined) },
+  extensions: { getExtension: (id) => (id === 'github.copilot-chat' && copilotInstalled ? {} : undefined), onDidChange: extensionsChanged.event },
   commands: {
     getCommands: async () => availableCommands,
     executeCommand: async (id) => { commandsRun.push(id); onCommand(id); },
@@ -65,7 +66,7 @@ const reset = () => { models = []; copilotInstalled = true; availableCommands = 
   // watchCopilot 1: Copilot signs itself in during the start-up wait -> no sign-in opened
   reset(); availableCommands = ['workbench.action.chat.triggerSetup'];
   let states = [];
-  const w1 = C.watchCopilot(ctx(true), { startupWaitMs: 500, autoSignIn: true, onState: (s) => states.push(s), log() {} });
+  const w1 = C.watchCopilot(ctx(true), { installWaitMs: 300, startupWaitMs: 500, autoSignIn: true, onState: (s) => states.push(s), log() {} });
   setTimeout(() => { models = [M('Auto')]; modelsChanged.fire(); }, 100);
   await sleep(700);
   assert.deepStrictEqual(commandsRun, []);
@@ -76,7 +77,7 @@ const reset = () => { models = []; copilotInstalled = true; availableCommands = 
   reset(); availableCommands = ['workbench.action.chat.triggerSetup'];
   onCommand = (id) => { if (id === 'workbench.action.chat.triggerSetup') setTimeout(() => { models = [M('Auto')]; modelsChanged.fire(); }, 100); };
   states = [];
-  const w2 = C.watchCopilot(ctx(true), { startupWaitMs: 200, autoSignIn: true, onState: (s) => states.push(s), log() {} });
+  const w2 = C.watchCopilot(ctx(true), { installWaitMs: 300, startupWaitMs: 200, autoSignIn: true, onState: (s) => states.push(s), log() {} });
   await sleep(800);
   // sign-in opened at start-up, then the Chat side bar it opened is closed again
   assert.deepStrictEqual(commandsRun, ['workbench.action.chat.triggerSetup', 'workbench.action.closeAuxiliaryBar']);
@@ -88,7 +89,7 @@ const reset = () => { models = []; copilotInstalled = true; availableCommands = 
   // watchCopilot 3: automatic sign-in turned off -> a notification with a button; clicking signs in
   reset(); availableCommands = ['workbench.action.chat.triggerSetup']; clickButton = true;
   onCommand = (id) => { if (id === 'workbench.action.chat.triggerSetup') setTimeout(() => { models = [M('Auto')]; modelsChanged.fire(); }, 50); };
-  const w3 = C.watchCopilot(ctx(true), { startupWaitMs: 100, autoSignIn: false, onState() {}, log() {} });
+  const w3 = C.watchCopilot(ctx(true), { installWaitMs: 300, startupWaitMs: 100, autoSignIn: false, onState() {}, log() {} });
   await sleep(600);
   assert(infoMessages.some((m) => /isn't signed in yet/.test(m)));
   assert.deepStrictEqual(commandsRun, ['workbench.action.chat.triggerSetup', 'workbench.action.closeAuxiliaryBar']);
@@ -99,6 +100,33 @@ const reset = () => { models = []; copilotInstalled = true; availableCommands = 
   assert.strictEqual(await C.signInToCopilot(2000), true);
   assert.deepStrictEqual(commandsRun, ['workbench.action.chat.triggerSetup']);
   w3.dispose();
+
+  // watchCopilot 4: Copilot Chat is still being installed when the window opens; VS Code finishes, Copilot
+  // signs itself in -> no sign-in is opened (the case seen in a new Codespace)
+  reset(); availableCommands = ['workbench.action.chat.triggerSetup']; copilotInstalled = false;
+  states = [];
+  const w4 = C.watchCopilot(ctx(true), { installWaitMs: 3000, startupWaitMs: 1000, autoSignIn: true, onState: (s) => states.push(s), log() {} });
+  setTimeout(() => { copilotInstalled = true; extensionsChanged.fire(); }, 1500); // after the 1 s start-up wait
+  setTimeout(() => { models = [M('Auto')]; modelsChanged.fire(); }, 1800);
+  await sleep(2400);
+  assert.deepStrictEqual(commandsRun, [], 'must not open the sign-in while Copilot Chat is still being installed');
+  assert.strictEqual(states[states.length - 1], 'ready');
+  w4.dispose();
+
+  // watchCopilot 5: Copilot Chat never shows up -> after the install wait, the sign-in (which installs it) opens
+  reset(); availableCommands = ['workbench.action.chat.triggerSetup']; copilotInstalled = false;
+  onCommand = (id) => { if (id === 'workbench.extensions.installExtension') copilotInstalled = true; };
+  const w5 = C.watchCopilot(ctx(true), { installWaitMs: 200, startupWaitMs: 100, autoSignIn: true, onState() {}, log() {} });
+  await sleep(700);
+  assert.deepStrictEqual(commandsRun.slice(0, 2), ['workbench.extensions.installExtension', 'workbench.action.chat.triggerSetup']);
+  w5.dispose();
+
+  // waitForExtension
+  reset(); copilotInstalled = false;
+  setTimeout(() => { copilotInstalled = true; extensionsChanged.fire(); }, 50);
+  assert.strictEqual(await C.waitForExtension('github.copilot-chat', 1000), true);
+  reset(); copilotInstalled = false;
+  assert.strictEqual(await C.waitForExtension('github.copilot-chat', 100), false);
 
   console.log('copilot tests passed');
   process.exit(0);
