@@ -10,9 +10,10 @@
 #   bash .devcontainer/warm-lean.sh --foreground   # run here and wait
 #   bash .devcontainer/warm-lean.sh --force        # run again even if it already ran since boot
 #
-# Order: Lean's program and libraries (most of the server's start-up), then the many small files
-# Lake checks (lakefiles, module sources, .trace/.hash files), then the imported modules' .olean
-# files, dependencies first. .ilean files are left to the Lean server, which reads them in the background.
+# Order: Lean's program and libraries, then all of the toolchain's prebuilt files (Lake needs many of
+# them before the server is ready), then the many small files Lake checks (lakefiles, module sources,
+# .trace/.hash files), then the imported modules' .olean files, dependencies first. .ilean files are
+# left to the Lean server, which reads them in the background.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.elan/bin:$PATH"
@@ -58,14 +59,20 @@ if [ -n "$prefix" ]; then
     done
   } | sort -zu | readall 2 1
   phase "Lean's program and libraries read"
+  # 2. All of the toolchain's prebuilt .olean files (~350 MB): before the server is ready, Lake loads
+  #    Mathlib's lakefile.lean, which needs Lake's and much of Lean's own modules. Lake ships without
+  #    sources, so those can't be found by following imports; reading them all is simpler and cheap.
+  find "$prefix/lib/lean" -name '*.olean' -print0 | readall 2 32
+  phase "Lean's and Lake's prebuilt files read"
 else
   echo "(couldn't find the Lean toolchain; skipping Lean's own files)"
 fi
 
-# 2. Small files Lake checks before Lean loads anything (many tiny files: a few readers help).
-LEAN_PREFIX="$prefix" node .devcontainer/warm-list.js small --stats | readall 4 64
+# 3. Small files Lake checks before Lean loads anything. Thousands of tiny files: limited by the number
+#    of files rather than their size, so many readers at once help.
+LEAN_PREFIX="$prefix" node .devcontainer/warm-list.js small --stats | readall 16 32
 phase "Lake's small files read"
 
-# 3. The imported modules' .olean files, dependencies first.
+# 4. The imported modules' .olean files, dependencies first (Lean's own were read in step 2).
 LEAN_PREFIX="$prefix" node .devcontainer/warm-list.js olean --stats | readall 2 16
 phase "done"
