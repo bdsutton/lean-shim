@@ -186,11 +186,15 @@ The slow set-up work happens in steps that GitHub Codespaces **prebuilds** run a
 - `onCreateCommand` → `.devcontainer/setup.sh`: installs elan (Lean's version manager).
 - `updateContentCommand` → `.devcontainer/update-content.sh`: downloads the Lean toolchain and all of
   Mathlib's prebuilt files, then builds Lean Shim. Rerun whenever the prebuild is refreshed for new commits.
-- `postStartCommand` → `.devcontainer/warm-lean.sh`: every time the Codespace starts, reads in the
-  background the prebuilt Lean files that the repo's `.lean` files import, including Lean's core library
-  (log: `/tmp/lean-shim-warm.log`). A new Codespace starts with a cold disk, and without this the first
-  file opened waits minutes for those files with Lean mostly idle. Files added later are covered from the
-  next start; to warm them right away, run `bash .devcontainer/warm-lean.sh`.
+- `postStartCommand` → `.devcontainer/warm-lean.sh`: every time the Codespace starts, reads ahead of time
+  the files Lean needs first. A Codespace created from a prebuild fetches each file's data the first time
+  it's read, at only a few MB/s (versus hundreds of MB/s for files written in the Codespace), which made
+  the first Lean start take minutes. The script reads, in order: Lean's program and libraries (most of
+  the server's start-up), the small files Lake checks, and the `.olean` files of everything the repo's
+  `.lean` files import, dependencies first. It runs in the background, at most once per boot; Lean Shim
+  also starts it when the extension loads, in case the start-up step didn't. Each phase's timing is logged
+  to `/tmp/lean-shim-warm.log`. To read a newly added file's imports right away, run
+  `bash .devcontainer/warm-lean.sh --force`.
 - `postAttachCommand` → `.devcontainer/install-extension.sh`: only installs the already-built extension
   when the Codespace opens.
 

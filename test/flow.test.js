@@ -101,6 +101,13 @@ const vscode = {
     registerTextEditorCommand: (id, f) => { if (id === 'leanShim.suggest') cmd = f; return { dispose() {} }; },
   },
 };
+// A project folder whose warm-up script just leaves a marker, to check the extension starts it.
+const os = require('node:os'), fsx = require('node:fs'), px = require('node:path');
+const projDir = fsx.mkdtempSync(px.join(os.tmpdir(), 'warmproj-'));
+fsx.mkdirSync(px.join(projDir, '.devcontainer'));
+const marker = px.join(projDir, 'warm-started');
+fsx.writeFileSync(px.join(projDir, '.devcontainer', 'warm-lean.sh'), `#!/bin/sh\ntouch "${marker}"\n`);
+vscode.workspace.workspaceFolders = [{ uri: { scheme: 'file', fsPath: projDir } }];
 const origLoad = Module._load;
 Module._load = function (req, ...rest) { return req === 'vscode' ? vscode : origLoad.call(this, req, ...rest); };
 const ext = require('../out/extension');
@@ -127,6 +134,10 @@ function setup(replies) {
 const within = (p, ms) => Promise.race([p.then(() => 'finished'), new Promise((r) => setTimeout(() => r('FROZE'), ms))]);
 
 (async () => {
+  // 0. The extension starts the project's warm-up script when it loads
+  for (let i = 0; i < 20 && !fsx.existsSync(marker); i++) await new Promise((r) => setTimeout(r, 100));
+  assert(fsx.existsSync(marker), 'the warm-up script should be started when the extension loads');
+
   // 1. Lean rejects attempt 1, accepts attempt 2
   setup(['```lean\nexact bad\n```', '```lean\nsimp\n```']);
   assert.strictEqual(await within(cmd(editor), 5000), 'finished');

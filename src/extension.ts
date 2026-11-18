@@ -1,3 +1,6 @@
+import { execFile } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { Baseline, describe, judge, makeBaseline, touches, usesSorry } from './check';
 import { singleLineObstacle, toSingleLine } from './singleline';
@@ -37,6 +40,7 @@ let log: vscode.OutputChannel;
 
 export function activate(context: vscode.ExtensionContext) {
   extContext = context;
+  startLeanWarmUp();
   log = vscode.window.createOutputChannel('Lean Shim');
   statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusItem.command = 'leanShim.suggest';
@@ -86,6 +90,22 @@ function setIdleStatus() {
     statusItem.text = '$(sparkle) Fill Proof';
     statusItem.tooltip = 'Insert AI-suggested Lean proof steps at the cursor (press again for a different suggestion)';
     statusItem.command = 'leanShim.suggest';
+  }
+}
+
+/**
+ * Backup start for the repo's warm-up script (.devcontainer/warm-lean.sh), which reads ahead of time
+ * the files Lean needs first. The Codespace's start-up step normally starts it; the script runs at most
+ * once per boot, so this does nothing if it already ran.
+ */
+function startLeanWarmUp() {
+  if (process.platform !== 'linux') return;
+  for (const folder of vscode.workspace.workspaceFolders ?? []) {
+    if (folder.uri.scheme !== 'file') continue;
+    const script = path.join(folder.uri.fsPath, '.devcontainer', 'warm-lean.sh');
+    if (!fs.existsSync(script)) continue;
+    execFile('bash', [script], { cwd: folder.uri.fsPath, timeout: 30000 }, () => undefined);
+    return;
   }
 }
 
