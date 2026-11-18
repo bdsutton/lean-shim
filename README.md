@@ -1,6 +1,6 @@
 # Lean Shim
 
-## By Brian Sutton and Claude Code
+By Brian Sutton, with the assistance of Claude Code
 
 Fill in a missing piece of a Lean 4 proof with GitHub Copilot. Put the cursor where the proof
 should go and trigger the command. The suggested steps are inserted at the cursor, and nothing else in
